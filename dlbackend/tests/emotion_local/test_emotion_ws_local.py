@@ -10,9 +10,15 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
+from core.perception.emotion.constants import RESOURCES_DIR
+from core.perception.emotion.perception import EmotionPerception
+from core.perception.emotion.utils import create_emotion_recognizer
+from core.perception.face.predictors.yunet import YuNetFaceDetector
 from protocols.utils.state import get_emotion_model, set_emotion_model
-from core.perception.emotion.emotion import EmotionAnalysis
-from core.perception.emotion.recognizer.emonet import EMOTIONS_8 as EMONET_EMOTIONS
+
+EMONET_EMOTIONS: list[str] = (
+    (RESOURCES_DIR / "emonet_8_classes.txt").read_text().strip().split("\n")
+)
 
 TEST_API_KEY = "test-secret-key"
 os.environ["DL_API_KEY"] = TEST_API_KEY
@@ -54,10 +60,14 @@ def _make_face_frame_b64(width: int = 320, height: int = 240) -> str:
 
 @pytest.fixture(scope="session")
 def model():
-    """Load the real EmotionAnalysis once for the entire test session."""
+    """Load the real EmotionPerception once for the entire test session."""
     from core.enums import EmotionRecognizerEnum
 
-    m = EmotionAnalysis(model_name=EmotionRecognizerEnum.EMONET_8, emotion_model_path=EMONET_MODEL_PATH)
+    emotion_recognizer = create_emotion_recognizer(
+        model_name=EmotionRecognizerEnum.EMONET_8, model_path=EMONET_MODEL_PATH
+    )
+    face_detector = YuNetFaceDetector()
+    m = EmotionPerception(emotion_recognizer=emotion_recognizer, face_detector=face_detector)
     m.start()
     return m
 
@@ -92,6 +102,38 @@ class TestHealthEndpoint:
         resp = client.get("/api/dl/health", headers=AUTH_HEADERS)
         assert resp.json()["emotion_model"] is False
         set_emotion_model(saved)
+
+
+class TestEmotionRecognizeHTTP:
+    def test_single_image_returns_detections(self, client):
+        resp = client.post(
+            "/api/dl/emotion-recognize",
+            json={"image_b64": _make_face_frame_b64()},
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "detections" in body
+        assert isinstance(body["detections"], list)
+
+    def test_single_image_no_face_returns_empty(self, client):
+        resp = client.post(
+            "/api/dl/emotion-recognize",
+            json={"image_b64": _make_frame_b64(), "threshold": 0.0},
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "detections" in body
+
+    def test_high_threshold_returns_empty(self, client):
+        resp = client.post(
+            "/api/dl/emotion-recognize",
+            json={"image_b64": _make_face_frame_b64(), "threshold": 1.0},
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 200
+        assert resp.json()["detections"] == []
 
 
 class TestEmotionAnalysisWebSocket:

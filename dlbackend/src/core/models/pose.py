@@ -1,6 +1,11 @@
-from typing import Annotated, Literal, NamedTuple
+"""Internal pose models — dataclasses for core logic, not HTTP."""
 
-from pydantic import BaseModel, Discriminator, Tag
+from dataclasses import dataclass, field
+from enum import IntEnum
+from typing import NamedTuple
+
+import numpy as np
+import numpy.typing as npt
 
 from core.enums.pose import GraphEnum
 
@@ -16,58 +21,118 @@ class Point3D(NamedTuple):
     z: float
 
 
-class Pose2D(BaseModel):
+# ---------------------------------------------------------------------------
+# Raw predictor outputs (numpy arrays, batched)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class RawPose2DDetection:
+    """Raw 2D pose estimator output — batched numpy arrays."""
+
+    keypoints: npt.NDArray[np.float32]
+    """Shape: (N, K, 2) — (x, y) per joint per person."""
+
+    scores: npt.NDArray[np.float32]
+    """Shape: (N, K) — confidence per joint per person."""
+
+
+@dataclass
+class RawPose3DDetection:
+    """Raw 3D pose lifter output — batched numpy arrays."""
+
+    joints_3d: npt.NDArray[np.float32]
+    """Shape: (N, K, 3) — (x, y, z) per joint per person."""
+
+
+# ---------------------------------------------------------------------------
+# Ergonomic assessment
+# ---------------------------------------------------------------------------
+
+
+class RiskLevel(IntEnum):
+    NEGLIGIBLE = 1  # Score 1-2: acceptable posture
+    LOW = 2         # Score 3-4: further investigation, may need changes
+    MEDIUM = 3      # Score 5-6: investigation and changes needed soon
+    HIGH = 4        # Score 7+: investigation and changes needed immediately
+
+
+@dataclass
+class BodyPartScores:
+    """Individual body-part scores and angles from ergonomic assessment."""
+
+    upper_arm: int
+    lower_arm: int
+    wrist: int
+    wrist_twist: int
+    neck: int
+    trunk: int
+    legs: int
+    table_a: int
+    table_b: int
+    score_a: int
+    score_b: int
+    upper_arm_angle: int
+    lower_arm_angle: int
+    neck_angle: int
+    trunk_angle: int
+
+
+@dataclass
+class SideAssessment:
+    """Ergonomic assessment result for one side of the body."""
+
+    score: int
+    risk_level: RiskLevel
+    body_scores: BodyPartScores
+    skipped_joints: list[str] = field(default_factory=list)
+
+
+@dataclass
+class ErgoAssessment:
+    """Result of an ergonomic assessment for both sides."""
+
+    left: SideAssessment
+    right: SideAssessment
+    score: int
+    risk_level: RiskLevel
+
+
+# ---------------------------------------------------------------------------
+# Clean session outputs (after interpretation)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class Pose2D:
     graph_type: GraphEnum
     joints: list[Point2D]
     confs: list[float]
 
 
-class Pose3D(BaseModel):
+@dataclass
+class Pose3D:
     graph_type: GraphEnum
     joints: list[Point3D]
     confs: list[float]
 
 
-# -- HTTP request/response --
-
-
-class PoseEstimateRequest(BaseModel):
-    """HTTP request for single-image pose estimation."""
-
-    image_b64: str
-
-
-class PoseEstimateResponse(BaseModel):
-    """HTTP response for single-image pose estimation."""
+@dataclass
+class PoseDetection:
+    """Session output: pose estimation result for a single frame."""
 
     pose_2d: Pose2D
     pose_3d: Pose3D | None = None
-    ergo: dict | None = None
+    ergo: ErgoAssessment | None = None
 
 
-# -- WebSocket messages --
+# ---------------------------------------------------------------------------
+# Session config
+# ---------------------------------------------------------------------------
 
 
-class PoseFrameRequest(BaseModel):
-    type: Literal["frame"] = "frame"
-    task: Literal["pose"] = "pose"
-    frame_b64: str
-
-
-class PoseConfigRequest(BaseModel):
-    type: Literal["config"] = "config"
-    task: Literal["pose"] = "pose"
-    frame_interval: float | None = None
-
-
-class PoseHeartBeatRequest(BaseModel):
-    type: Literal["heartbeat"] = "heartbeat"
-    task: Literal["pose"] = "pose"
-
-
-PoseRequest = Annotated[
-    Annotated[PoseFrameRequest, Tag("frame")]
-    | Annotated[PoseConfigRequest, Tag("config")]
-    | Annotated[PoseHeartBeatRequest, Tag("heartbeat")],
-    Discriminator("type"),
-]
+@dataclass
+class PosePerceptionSessionConfig:
+    frame_interval: float = 1.0
+    confidence_threshold_2d: float = 0.3
+    min_valid_keypoints: int = 5

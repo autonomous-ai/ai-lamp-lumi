@@ -11,8 +11,12 @@ import pytest
 from fastapi.testclient import TestClient
 
 from protocols.utils.state import get_emotion_model, set_emotion_model
-from core.perception.emotion.emotion import EmotionAnalysis
-from core.perception.emotion.recognizer.posterv2 import EMOTIONS as POSTERV2_EMOTIONS
+from core.perception.emotion.constants import RESOURCES_DIR
+from core.perception.emotion.perception import EmotionPerception
+from core.perception.emotion.utils import create_emotion_recognizer
+from core.perception.face.predictors.yunet import YuNetFaceDetector
+
+POSTERV2_EMOTIONS: list[str] = (RESOURCES_DIR / "posterv2_classes.txt").read_text().strip().split("\n")
 
 TEST_API_KEY = "test-secret-key"
 os.environ["DL_API_KEY"] = TEST_API_KEY
@@ -49,7 +53,11 @@ def _make_face_frame_b64(width: int = 320, height: int = 240) -> str:
 def model():
     from core.enums import EmotionRecognizerEnum
 
-    m = EmotionAnalysis(model_name=EmotionRecognizerEnum.POSTERV2, emotion_model_path=POSTERV2_MODEL_PATH)
+    emotion_recognizer = create_emotion_recognizer(
+        model_name=EmotionRecognizerEnum.POSTERV2, model_path=POSTERV2_MODEL_PATH
+    )
+    face_detector = YuNetFaceDetector()
+    m = EmotionPerception(emotion_recognizer=emotion_recognizer, face_detector=face_detector)
     m.start()
     return m
 

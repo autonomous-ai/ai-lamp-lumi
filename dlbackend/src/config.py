@@ -1,5 +1,6 @@
 """Application configuration loaded from environment variables."""
 
+from pathlib import Path
 from typing import ClassVar
 
 from pydantic import BaseModel
@@ -49,7 +50,7 @@ class PoseSetting(BaseModel):
     enabled: bool = True
     model: PoseEstimator2DEnum = PoseEstimator2DEnum.RTMPOSE
     ckpt_path: str | None = None
-    # Optional overrides — None means use class defaults from PoseAnalysis
+    # Optional overrides — None means use class defaults from PosePerceptionSessionConfig
     confidence_threshold_2d: float | None = None
     min_valid_keypoints: int | None = None
     lifter_3d: PoseLifter3DEnum | None = PoseLifter3DEnum.TCPFORMER
@@ -82,12 +83,15 @@ class Settings(BaseSettings):
 
     dl_api_key: str = ""
 
+    cache_dir: Path = Path.home() / ".dlbackend"
+
     ser_recognition_model: SpeechEmotionRecognizerEnum = (
         SpeechEmotionRecognizerEnum.EMOTION2VEC_PLUS_LARGE
     )
     ser_recognition_ckpt_path: str | None = None
     ser_recognition_labels_path: str | None = None
     ser: SpeechEmotionRecognizerSetting = SpeechEmotionRecognizerSetting()
+
     action: ActionSetting = ActionSetting()
     emotion: EmotionSetting = EmotionSetting()
     pose: PoseSetting = PoseSetting()

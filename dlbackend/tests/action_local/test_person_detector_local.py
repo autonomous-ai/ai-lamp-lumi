@@ -15,9 +15,10 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
-from protocols.utils.state import get_action_model, set_action_model
-from core.perception.action.action import ActionAnalysis
-from core.perception.persondetector import YOLOPersonDetector
+from core.models.action import ActionPerceptionSessionConfig
+from core.perception.action import ActionPerception
+from core.perception.person.predictors import PersonDetector, YOLOPersonDetector
+from protocols.utils.state import set_action_model
 
 TEST_API_KEY = "test-secret-key"
 os.environ["DL_API_KEY"] = TEST_API_KEY
@@ -57,7 +58,7 @@ def _make_empty_frame_b64(width: int = 320, height: int = 240) -> str:
 
 @pytest.fixture(scope="session")
 def person_detector():
-    det = YOLOPersonDetector(model_name="yolo11n.pt")
+    det = YOLOPersonDetector(model_path="yolo11n.pt")
     det.start()
     return det
 
@@ -70,10 +71,10 @@ def model_with_detector(person_detector):
     recognizer = create_recognizer(
         model_name=HumanActionRecognizerEnum.X3D, model_path=X3D_MODEL_PATH
     )
-    m = ActionAnalysis(
-        recognizer=recognizer,
+    m = ActionPerception(
+        action_recognizer=recognizer,
         person_detector=person_detector,
-        frame_interval=0.0,
+        default_config=ActionPerceptionSessionConfig(frame_interval=0),
     )
     m.start()
     return m
@@ -87,9 +88,9 @@ def model_without_detector():
     recognizer = create_recognizer(
         model_name=HumanActionRecognizerEnum.X3D, model_path=X3D_MODEL_PATH
     )
-    m = ActionAnalysis(
-        recognizer=recognizer,
-        frame_interval=0.0,
+    m = ActionPerception(
+        action_recognizer=recognizer,
+        default_config=ActionPerceptionSessionConfig(frame_interval=0),
     )
     m.start()
     return m
@@ -124,30 +125,30 @@ AUTH_HEADERS = {"X-API-Key": TEST_API_KEY}
 
 
 class TestPersonDetector:
-    def test_detect_person_in_image(self, person_detector):
+    def test_detect_person_in_image(self, person_detector: PersonDetector):
         """Should detect at least one person in the drinking image."""
         frame = cv2.imread(str(PERSON_DRINKING_IMG))
         assert frame is not None, f"Failed to load {PERSON_DRINKING_IMG}"
-        detections = person_detector.detect(frame)
-        assert len(detections) >= 1
-        for d in detections:
-            x1, y1, x2, y2 = d.bbox_xyxy
+        detections = person_detector.predict([frame])[0]
+        assert detections.bbox_xyxy.shape[0] >= 1
+        for conf, bbox in zip(detections.confidence, detections.bbox_xyxy):
+            x1, y1, x2, y2 = bbox
             assert x2 > x1
             assert y2 > y1
-            assert d.confidence > 0.3
+            assert conf > 0.3
 
-    def test_crop_largest_person(self, person_detector):
+    def test_crop_largest_person(self, person_detector: PersonDetector):
         """Should return a non-empty crop of the person."""
         frame = cv2.imread(str(PERSON_DRINKING_IMG))
-        crop = person_detector.detect_largest_crop(frame)
+        crop = person_detector.extract_largest_crop([frame])[0]
         assert crop is not None
         assert crop.shape[0] > 0
         assert crop.shape[1] > 0
 
-    def test_no_person_in_empty_frame(self, person_detector):
+    def test_no_person_in_empty_frame(self, person_detector: PersonDetector):
         """Black frame should return no detections."""
         frame = np.zeros((240, 320, 3), dtype=np.uint8)
-        crop = person_detector.detect_largest_crop(frame)
+        crop = person_detector.extract_largest_crop([frame])[0]
         assert crop is None
 
 

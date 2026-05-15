@@ -10,8 +10,8 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
+from core.perception.action import ActionPerception
 from protocols.utils.state import get_action_model, set_action_model
-from core.perception.action.action import ActionAnalysis
 
 TEST_API_KEY = "test-secret-key"
 os.environ["DL_API_KEY"] = TEST_API_KEY
@@ -37,7 +37,7 @@ def model():
     recognizer = create_recognizer(
         model_name=HumanActionRecognizerEnum.UNIFORMERV2, model_path=UNIFORMERV2_MODEL_PATH
     )
-    m = ActionAnalysis(recognizer=recognizer)
+    m = ActionPerception(action_recognizer=recognizer)
     m.start()
     return m
 
@@ -89,7 +89,9 @@ class TestHealthEndpoint:
 class TestActionAnalysisWebSocket:
     def test_frame_returns_detected_classes(self, client):
         with client.websocket_connect("/api/dl/action-analysis/ws", headers=AUTH_HEADERS) as ws:
-            ws.send_text(json.dumps({"type": "frame", "task": "action", "frame_b64": _make_frame_b64()}))
+            ws.send_text(
+                json.dumps({"type": "frame", "task": "action", "frame_b64": _make_frame_b64()})
+            )
             resp = ws.receive_json()
             assert "detected_classes" in resp
             assert isinstance(resp["detected_classes"], list)
@@ -97,13 +99,19 @@ class TestActionAnalysisWebSocket:
     def test_multiple_frames(self, client):
         with client.websocket_connect("/api/dl/action-analysis/ws", headers=AUTH_HEADERS) as ws:
             for _ in range(3):
-                ws.send_text(json.dumps({"type": "frame", "task": "action", "frame_b64": _make_frame_b64()}))
+                ws.send_text(
+                    json.dumps({"type": "frame", "task": "action", "frame_b64": _make_frame_b64()})
+                )
                 resp = ws.receive_json()
                 assert "detected_classes" in resp
 
     def test_whitelist_update(self, client):
         with client.websocket_connect("/api/dl/action-analysis/ws", headers=AUTH_HEADERS) as ws:
-            ws.send_text(json.dumps({"type": "config", "task": "action", "whitelist": ["walking", "running"]}))
+            ws.send_text(
+                json.dumps(
+                    {"type": "config", "task": "action", "whitelist": ["walking", "running"]}
+                )
+            )
             assert ws.receive_json()["status"] == "config_updated"
 
     def test_threshold_update(self, client):
@@ -119,10 +127,14 @@ class TestActionAnalysisWebSocket:
     def test_whitelist_then_frame(self, client):
         allowed = {"applauding", "clapping"}
         with client.websocket_connect("/api/dl/action-analysis/ws", headers=AUTH_HEADERS) as ws:
-            ws.send_text(json.dumps({"type": "config", "task": "action", "whitelist": list(allowed)}))
+            ws.send_text(
+                json.dumps({"type": "config", "task": "action", "whitelist": list(allowed)})
+            )
             assert ws.receive_json()["status"] == "config_updated"
 
-            ws.send_text(json.dumps({"type": "frame", "task": "action", "frame_b64": _make_frame_b64()}))
+            ws.send_text(
+                json.dumps({"type": "frame", "task": "action", "frame_b64": _make_frame_b64()})
+            )
             resp = ws.receive_json()
             assert "detected_classes" in resp
             for det in resp["detected_classes"]:
@@ -178,14 +190,18 @@ class TestActionAnalysisWebSocket:
     def test_heartbeat_interleaved_with_frames(self, client):
         """Heartbeat should work between frame requests."""
         with client.websocket_connect("/api/dl/action-analysis/ws", headers=AUTH_HEADERS) as ws:
-            ws.send_text(json.dumps({"type": "frame", "task": "action", "frame_b64": _make_frame_b64()}))
+            ws.send_text(
+                json.dumps({"type": "frame", "task": "action", "frame_b64": _make_frame_b64()})
+            )
             ws.receive_json()
 
             ws.send_text(json.dumps({"type": "heartbeat", "task": "action"}))
             resp = ws.receive_json()
             assert resp == {"status": "ok"}
 
-            ws.send_text(json.dumps({"type": "frame", "task": "action", "frame_b64": _make_frame_b64()}))
+            ws.send_text(
+                json.dumps({"type": "frame", "task": "action", "frame_b64": _make_frame_b64()})
+            )
             resp = ws.receive_json()
             assert "detected_classes" in resp
 
