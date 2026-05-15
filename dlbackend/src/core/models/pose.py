@@ -133,6 +133,6 @@ class PoseDetection:
 
 @dataclass
 class PosePerceptionSessionConfig:
-    frame_interval: float = 0.0
+    frame_interval: float = 1.0
     confidence_threshold_2d: float = 0.3
     min_valid_keypoints: int = 5
