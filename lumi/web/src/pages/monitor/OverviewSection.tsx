@@ -521,7 +521,7 @@ export function OverviewSection({
           <VersionRow name="Web"    color="var(--lm-teal)"   version={webVersion}              uptime={null}                                                  updateTarget="web" />
           <VersionRow name="Lumi"   color="var(--lm-amber)"  version={sys?.version ?? null}    uptime={sys?.serviceUptime ?? null}                            updateTarget="lumi" />
           <VersionRow name="LeLamp" color="var(--lm-blue)"   version={lelampVersion}           uptime={sys?.lelampUptime ?? null}                             updateTarget="lelamp" />
-          <VersionRow name="Agent"  color="var(--lm-purple)" version={oc?.version ?? null}     uptime={oc?.connected ? (oc?.uptime ?? null) : null}           updateTarget={null} />
+          <VersionRow name="Agent"  color="var(--lm-purple)" version={oc?.version ?? null}     uptime={oc?.connected ? (oc?.agentUptime ?? null) : null}      updateTarget={null} />
         </div>
       </div>
 

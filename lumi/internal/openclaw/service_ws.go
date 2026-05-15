@@ -181,6 +181,9 @@ func (s *Service) runWSConn(ctx context.Context, handler domain.AgentEventHandle
 			SessionKey string `json:"sessionKey"`
 		} `json:"result"`
 		Payload struct {
+			Server struct {
+				UptimeMs int64 `json:"uptimeMs"`
+			} `json:"server"`
 			Snapshot struct {
 				SessionDefaults struct {
 					MainSessionKey string `json:"mainSessionKey"`
@@ -196,6 +199,11 @@ func (s *Service) runWSConn(ctx context.Context, handler domain.AgentEventHandle
 		if sk != "" {
 			s.SetSessionKey(sk)
 			slog.Info("session key from connect", "component", "openclaw", "sessionKey", sk)
+		}
+		// Compute the OpenClaw process start time from server.uptimeMs so the
+		// monitor UI can show the gateway's true age, not Lumi's WS connection age.
+		if upMs := connectResult.Payload.Server.UptimeMs; upMs > 0 {
+			s.agentStartedAt.Store(time.Now().Unix() - upMs/1000)
 		}
 	}
 

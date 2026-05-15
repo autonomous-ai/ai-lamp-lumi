@@ -103,7 +103,7 @@ Monitor poll API system/HW mỗi **3 giây**. Flow dùng hybrid theo file: REST 
 |----------|---------|
 | `GET /api/system/info` | CPU load, RAM (KB), nhiệt độ, uptime, goroutines, version, deviceId |
 | `GET /api/system/network` | SSID, IP, public IP, Tailscale IP, signal (dBm), internet (bool) |
-| `GET /api/openclaw/status` | name, connected (bool), sessionKey (bool) |
+| `GET /api/openclaw/status` | name, connected (bool), sessionKey (bool), version, emotion, uptime (uptime kết nối WS phía Lumi, giây), agentUptime (uptime tiến trình OpenClaw lấy từ `server.uptimeMs` trong hello-ok, giây — không reset khi Lumi restart) |
 | `GET /api/openclaw/recent` | Các flow event mới nhất từ JSONL của ngày hiện tại (`local/flow_events_<date>.jsonl`) |
 | `GET /api/openclaw/flow-events?date=YYYY-MM-DD&last=500` | API flow theo file dùng cho seed/history của Flow |
 | `GET /api/openclaw/flow-stream` | Stream live theo file (SSE) khi JSONL thay đổi |

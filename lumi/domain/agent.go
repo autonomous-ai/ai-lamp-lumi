@@ -38,6 +38,11 @@ type AgentGateway interface {
 	// connection last became ready, or 0 when not currently connected.
 	ConnectedAt() int64
 
+	// AgentUptime returns the agent runtime process uptime in seconds,
+	// independent of the local WS reconnect cycle. Returns 0 when not connected
+	// or when the gateway has not yet reported its uptime.
+	AgentUptime() int64
+
 	// IsBusy returns true when the agent is currently processing a turn.
 	// Passive sensing events should be dropped while busy to avoid interrupting active commands.
 	IsBusy() bool
