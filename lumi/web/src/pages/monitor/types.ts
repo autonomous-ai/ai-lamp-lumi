@@ -9,6 +9,9 @@ export interface SystemInfo {
   cpuLoad: number;
   cpuCount: number;
   cpuPerCore: number[];
+  swapTotal: number;
+  swapUsed: number;
+  swapPercent: number;
   memTotal: number;
   memUsed: number;
   memPercent: number;

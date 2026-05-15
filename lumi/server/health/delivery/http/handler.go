@@ -52,6 +52,9 @@ func (h *HealthHandler) SystemInfo(c *gin.Context) {
 		"memTotal":   0,
 		"memUsed":    0,
 		"memPercent": 0.0,
+		"swapTotal":   0,
+		"swapUsed":    0,
+		"swapPercent": 0.0,
 		"cpuTemp":    readCPUTemp(),
 		"uptime":         readUptime(),
 		"serviceUptime":  int64(time.Since(serverStartTime).Seconds()),
@@ -61,13 +64,18 @@ func (h *HealthHandler) SystemInfo(c *gin.Context) {
 		"deviceId":   h.config.DeviceID,
 	}
 
-	// Parse /proc/meminfo for RAM
+	// Parse /proc/meminfo for RAM + swap (KB).
 	if data, err := os.ReadFile("/proc/meminfo"); err == nil {
-		memTotal, memAvail := parseMeminfo(string(data))
+		memTotal, memAvail, swapTotal, swapFree := parseMeminfo(string(data))
 		info["memTotal"] = memTotal
 		info["memUsed"] = memTotal - memAvail
 		if memTotal > 0 {
 			info["memPercent"] = float64(memTotal-memAvail) / float64(memTotal) * 100
+		}
+		info["swapTotal"] = swapTotal
+		info["swapUsed"] = swapTotal - swapFree
+		if swapTotal > 0 {
+			info["swapPercent"] = float64(swapTotal-swapFree) / float64(swapTotal) * 100
 		}
 	}
 
@@ -346,8 +354,9 @@ func readUptime() int64 {
 	return int64(f)
 }
 
-// parseMeminfo extracts MemTotal and MemAvailable (in KB) from /proc/meminfo content.
-func parseMeminfo(content string) (total, available int64) {
+// parseMeminfo extracts MemTotal/MemAvailable/SwapTotal/SwapFree (all in KB)
+// from /proc/meminfo content.
+func parseMeminfo(content string) (memTotal, memAvail, swapTotal, swapFree int64) {
 	for _, line := range strings.Split(content, "\n") {
 		fields := strings.Fields(line)
 		if len(fields) < 2 {
@@ -356,9 +365,13 @@ func parseMeminfo(content string) (total, available int64) {
 		v, _ := strconv.ParseInt(fields[1], 10, 64)
 		switch {
 		case strings.HasPrefix(line, "MemTotal:"):
-			total = v
+			memTotal = v
 		case strings.HasPrefix(line, "MemAvailable:"):
-			available = v
+			memAvail = v
+		case strings.HasPrefix(line, "SwapTotal:"):
+			swapTotal = v
+		case strings.HasPrefix(line, "SwapFree:"):
+			swapFree = v
 		}
 	}
 	return

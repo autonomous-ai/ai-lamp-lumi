@@ -1,7 +1,77 @@
 import { useEffect, useState } from "react";
+import { Line } from "react-chartjs-2";
 import { S } from "./styles";
 import type { SystemInfo, NetworkInfo } from "./types";
-import { GaugeRing, Sparkline, StatPill, formatUptime, formatSize } from "./components";
+import { GaugeRing, StatPill, formatUptime, formatSize } from "./components";
+
+// Polling interval (ms) that populates cpuHistory/ramHistory. Used to label
+// the time axis on history charts since each datapoint is one poll tick.
+const POLL_MS = 5000;
+
+// Build chart.js datasets + options for a percentage history series.
+// `now` is "0s" (right edge), older values stretch back as negative seconds.
+function historyChart(data: number[], color: string, label: string) {
+  const labels = data.map((_, i) => {
+    const offsetSec = (data.length - 1 - i) * (POLL_MS / 1000);
+    if (offsetSec === 0) return "now";
+    return `-${offsetSec >= 60 ? `${Math.round(offsetSec / 60)}m` : `${offsetSec}s`}`;
+  });
+  return {
+    data: {
+      labels,
+      datasets: [{
+        label,
+        data,
+        borderColor: color,
+        backgroundColor: `${color}26`,
+        fill: true,
+        tension: 0.3,
+        pointRadius: 0,
+        pointHoverRadius: 3,
+        borderWidth: 1.5,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: { duration: 300 },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          mode: "index" as const,
+          intersect: false,
+          callbacks: {
+            label: (ctx: { parsed: { y: number } }) => `${ctx.parsed.y.toFixed(1)}%`,
+          },
+        },
+      },
+      scales: {
+        x: {
+          grid: { color: "rgba(255,255,255,0.06)" },
+          ticks: {
+            color: "rgba(255,255,255,0.4)",
+            font: { size: 9 },
+            maxRotation: 0,
+            autoSkip: true,
+            maxTicksLimit: 6,
+          },
+        },
+        y: {
+          min: 0,
+          max: 100,
+          grid: { color: "rgba(255,255,255,0.06)" },
+          ticks: {
+            color: "rgba(255,255,255,0.4)",
+            font: { size: 9 },
+            stepSize: 25,
+            callback: (v: string | number) => `${v}%`,
+          },
+        },
+      },
+      interaction: { mode: "nearest" as const, axis: "x" as const, intersect: false },
+    },
+  };
+}
 
 // Temperature tier: matches Pi thermal behavior (throttle ~80°C, warning ~70°C).
 // Scale uses 80°C as full-circle so the ring visually reaches red as it fills.
