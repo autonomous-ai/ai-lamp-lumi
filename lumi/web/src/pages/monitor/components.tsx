@@ -169,24 +169,33 @@ export function Sparkline({
   data,
   color = "var(--lm-amber)",
   height = 44,
+  max,
+  grid = false,
 }: {
   data: number[];
   color?: string;
   height?: number;
+  // If set, locks the chart's Y scale to this maximum (e.g. 100 for %).
+  // Otherwise auto-scales to the largest value in `data`.
+  max?: number;
+  // Draws faint horizontal gridlines at 25/50/75% of `max`. Implies fixed max.
+  grid?: boolean;
 }) {
   if (data.length < 2) return <div style={{ height }} />;
   const w = 280;
   const h = height;
-  const max = Math.max(...data, 1);
+  const yMax = max ?? Math.max(...data, 1);
   const pts = data.map((v, i) => {
     const x = (i / (data.length - 1)) * w;
-    const y = h - (v / max) * (h - 4) - 2;
+    const y = h - (Math.min(v, yMax) / yMax) * (h - 4) - 2;
     return `${x},${y}`;
   });
   const areaPath =
     `M 0,${h} ` +
     pts.join(" L ") +
     ` L ${w},${h} Z`;
+
+  const gridLevels = grid ? [0.25, 0.5, 0.75] : [];
 
   return (
     <svg width="100%" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" style={{ display: "block" }}>
@@ -196,6 +205,23 @@ export function Sparkline({
           <stop offset="100%" stopColor={color} stopOpacity={0} />
         </linearGradient>
       </defs>
+      {/* Horizontal gridlines (25/50/75%). Dashed and faint so they don't fight the line. */}
+      {gridLevels.map((g) => {
+        const y = h - g * (h - 4) - 2;
+        return (
+          <line
+            key={g}
+            x1={0}
+            x2={w}
+            y1={y}
+            y2={y}
+            stroke="var(--lm-border)"
+            strokeWidth={0.6}
+            strokeDasharray="3 4"
+            vectorEffect="non-scaling-stroke"
+          />
+        );
+      })}
       <path d={areaPath} fill={`url(#sg-${color.replace(/[^a-z]/gi, "")})`} />
       <polyline
         points={pts.join(" ")}
@@ -204,6 +230,7 @@ export function Sparkline({
         strokeWidth={1.5}
         strokeLinejoin="round"
         strokeLinecap="round"
+        vectorEffect="non-scaling-stroke"
       />
     </svg>
   );

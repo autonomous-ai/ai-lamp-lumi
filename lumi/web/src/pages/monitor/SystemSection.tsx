@@ -35,69 +35,85 @@ export function SystemSection({
       {/* Performance — one card per metric so each gets a clean visual unit.
           CPU card includes a compact per-core strip so spikes pinned to a single
           core (e.g. STT thread) are visible against an otherwise low aggregate. */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div style={{ ...S.cardLabel, fontSize: 11 }}>Performance</div>
+      <div style={{ display: "flex", justifyContent: "flex-end" }}>
         <span style={{ fontSize: 10, color: "var(--lm-text-muted)" }}>
           updated {lastUpdate.toLocaleTimeString()}
         </span>
       </div>
-      <div className="lm-grid-4">
-        <div style={{ ...S.card, display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
-          <GaugeRing
-            value={sys.cpuLoad}
-            label="CPU"
-            detail={sys.cpuCount ? `${sys.cpuCount} cores` : `${sys.cpuLoad.toFixed(1)}%`}
-            color="var(--lm-amber)"
-            size={110}
-          />
-          {sys.cpuPerCore && sys.cpuPerCore.length > 0 && (
-            <CoreStrip values={sys.cpuPerCore} />
-          )}
-        </div>
-        <div style={{ ...S.card, display: "flex", justifyContent: "center" }}>
-          <GaugeRing
-            value={sys.memPercent}
-            label="Memory"
-            detail={`${formatSize(sys.memUsed, "KB")} / ${formatSize(sys.memTotal, "KB")}`}
-            color="var(--lm-blue)"
-            size={110}
-          />
-        </div>
-        <div style={{ ...S.card, display: "flex", justifyContent: "center" }}>
-          <GaugeRing
-            value={sys.diskPercent ?? 0}
-            label="Disk"
-            detail={`${formatSize(sys.diskUsed ?? 0, "MB")} / ${formatSize(sys.diskTotal ?? 0, "MB")}`}
-            color={diskColor}
-            size={110}
-          />
-        </div>
-        <div style={{ ...S.card, display: "flex", justifyContent: "center" }}>
-          <GaugeRing
-            value={sys.cpuTemp > 0 ? Math.min(100, (sys.cpuTemp / TEMP_MAX) * 100) : 0}
-            label="Temp"
-            detail={`${sys.cpuTemp.toFixed(1)}°C`}
-            color={tempColor(sys.cpuTemp)}
-            size={110}
-          />
-        </div>
-      </div>
-
-      {/* Sparklines */}
+      {/* Row 1: CPU + CPU history */}
       <div className="lm-grid-2">
-        <div style={S.card}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+        <div style={{ ...S.card, padding: 12 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+            <div style={S.cardLabel}>CPU</div>
+            <span style={{ fontSize: 11, color: "var(--lm-amber)", fontWeight: 600 }}>
+              {sys.cpuCount ? `${sys.cpuCount} cores` : ""}
+            </span>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+            <GaugeRing value={sys.cpuLoad} label="" detail={`${sys.cpuLoad.toFixed(1)}%`} color="var(--lm-amber)" size={140} />
+            {sys.cpuPerCore && sys.cpuPerCore.length > 0 && (
+              <CoreStrip values={sys.cpuPerCore} />
+            )}
+          </div>
+        </div>
+        <div style={{ ...S.card, padding: 12 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
             <div style={S.cardLabel}>CPU History</div>
             <span style={{ fontSize: 11, color: "var(--lm-amber)", fontWeight: 600 }}>{sys.cpuLoad.toFixed(1)}%</span>
           </div>
-          <Sparkline data={cpuHistory} color="var(--lm-amber)" height={52} />
+          <Sparkline data={cpuHistory} color="var(--lm-amber)" height={140} max={100} grid />
         </div>
-        <div style={S.card}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+      </div>
+
+      {/* Row 2: Memory + RAM history */}
+      <div className="lm-grid-2">
+        <div style={{ ...S.card, padding: 12 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+            <div style={S.cardLabel}>Memory</div>
+            <span style={{ fontSize: 11, color: "var(--lm-blue)", fontWeight: 600 }}>
+              {formatSize(sys.memUsed, "KB")} / {formatSize(sys.memTotal, "KB")}
+            </span>
+          </div>
+          <div style={{ display: "flex", justifyContent: "center" }}>
+            <GaugeRing value={sys.memPercent} label="" detail={`${sys.memPercent.toFixed(0)}%`} color="var(--lm-blue)" size={140} />
+          </div>
+        </div>
+        <div style={{ ...S.card, padding: 12 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
             <div style={S.cardLabel}>RAM History</div>
             <span style={{ fontSize: 11, color: "var(--lm-blue)", fontWeight: 600 }}>{sys.memPercent.toFixed(0)}%</span>
           </div>
-          <Sparkline data={ramHistory} color="var(--lm-blue)" height={52} />
+          <Sparkline data={ramHistory} color="var(--lm-blue)" height={140} max={100} grid />
+        </div>
+      </div>
+
+      {/* Row 3: Disk + Temp */}
+      <div className="lm-grid-2">
+        <div style={{ ...S.card, padding: 12 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+            <div style={S.cardLabel}>Disk</div>
+            <span style={{ fontSize: 11, color: diskColor, fontWeight: 600 }}>
+              {formatSize(sys.diskUsed ?? 0, "MB")} / {formatSize(sys.diskTotal ?? 0, "MB")}
+            </span>
+          </div>
+          <div style={{ display: "flex", justifyContent: "center" }}>
+            <GaugeRing value={sys.diskPercent ?? 0} label="" detail={`${(sys.diskPercent ?? 0).toFixed(0)}%`} color={diskColor} size={140} />
+          </div>
+        </div>
+        <div style={{ ...S.card, padding: 12 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+            <div style={S.cardLabel}>Temp</div>
+            <span style={{ fontSize: 11, color: tempColor(sys.cpuTemp), fontWeight: 600 }}>{sys.cpuTemp.toFixed(1)}°C</span>
+          </div>
+          <div style={{ display: "flex", justifyContent: "center" }}>
+            <GaugeRing
+              value={sys.cpuTemp > 0 ? Math.min(100, (sys.cpuTemp / TEMP_MAX) * 100) : 0}
+              label=""
+              detail={`${sys.cpuTemp.toFixed(1)}°C`}
+              color={tempColor(sys.cpuTemp)}
+              size={140}
+            />
+          </div>
         </div>
       </div>
 

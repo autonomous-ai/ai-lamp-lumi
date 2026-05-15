@@ -155,7 +155,7 @@ export const NAV: NavEntry[] = [
     icon: "⎚",
     children: [
       { id: "overview",    label: "Overview",  icon: "⊞" },
-      { id: "system",      label: "System",    icon: "ℹ" },
+      { id: "system",      label: "System",    icon: "⚙" },
       { id: "flow",        label: "Flow",      icon: "⇄" },
       { id: "face-owners", label: "Users",     icon: "☺" },
       { id: "camera",      label: "Camera",    icon: "⊙" },

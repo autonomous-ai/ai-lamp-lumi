@@ -34,8 +34,8 @@ import { CliSection } from "./CliSection";
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, PointElement, LineElement, Title, Tooltip, Legend, Filler);
 
-function allNavLeaves(): { id: Section; label: string }[] {
-  const leaves: { id: Section; label: string }[] = [];
+function allNavLeaves(): { id: Section; label: string; icon: string }[] {
+  const leaves: { id: Section; label: string; icon: string }[] = [];
   for (const entry of NAV) {
     if (isNavGroup(entry)) entry.children.forEach((c) => { if (!isNavLink(c)) leaves.push(c); });
     else leaves.push(entry);
@@ -159,7 +159,9 @@ export default function Monitor() {
     setSectionRaw(s);
   };
 
-  const sectionLabel = allNavLeaves().find((n) => n.id === section)?.label ?? "Monitor";
+  const sectionLeaf = allNavLeaves().find((n) => n.id === section);
+  const sectionLabel = sectionLeaf?.label ?? "Monitor";
+  const sectionIcon = sectionLeaf?.icon ?? "";
   useDocumentTitle(sectionLabel);
 
   const [sys, setSys] = useState<SystemInfo | null>(null);
@@ -360,7 +362,14 @@ export default function Monitor() {
             onClick={() => setSidebarOpen((v) => !v)}
             aria-label="Menu"
           >☰</button>
-          {/* Spacer when hamburger is hidden on desktop, keeps theme toggle right-aligned */}
+          {/* Current section label — gives the user a visual anchor for where they are. */}
+          <span style={{
+            display: "flex", alignItems: "center", gap: 8,
+            fontSize: 13, fontWeight: 600, color: "var(--lm-text)",
+          }}>
+            <span style={{ fontSize: 14, color: "var(--lm-amber)" }}>{sectionIcon}</span>
+            <span>{sectionLabel}</span>
+          </span>
           <span style={{ flex: 1 }} />
           <button onClick={toggleTheme} style={{
             background: "none", border: "1px solid var(--lm-border)", cursor: "pointer",
