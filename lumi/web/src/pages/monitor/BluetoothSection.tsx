@@ -182,8 +182,8 @@ export function BluetoothSection() {
       <div style={S.card}>
         <div style={S.cardLabel}>Bluetooth Headset</div>
         <p style={{ fontSize: 13, color: "var(--lm-text-muted)" }}>
-          Thiết bị này chưa có Bluetooth khả dụng (bluetoothctl không chạy).
-          Cần BlueZ + PipeWire/PulseAudio trên Pi để dùng tai nghe BT.
+          Bluetooth is not available on this host (bluetoothctl missing).
+          Install BlueZ + PipeWire/PulseAudio on the Pi to use a BT headset.
         </p>
       </div>
     );
@@ -204,8 +204,8 @@ export function BluetoothSection() {
         </div>
 
         <p style={{ fontSize: 12, color: "var(--lm-text-muted)", marginTop: 0, marginBottom: 12 }}>
-          Khi bật, TTS và STT sẽ đi qua tai nghe BT thay vì loa/mic của đèn.
-          Mic sensing nền vẫn ở mic đèn để Lumi nghe ngóng môi trường.
+          When on, TTS and STT route through the BT headset instead of the lamp speaker/mic.
+          Background sensing mic stays on the lamp so Lumi keeps listening to the room.
         </p>
 
         {statusError && (
