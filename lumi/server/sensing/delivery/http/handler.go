@@ -359,6 +359,12 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 			}
 		case "presence.leave", "presence.away":
 			msg += "\n[No crons to cancel. NO_REPLY unless worth saying.]"
+		case "touch.head_pat":
+			// LeLamp already played a random pet-response phrase locally
+			// (button_actions.head_pat_action). The agent only records the
+			// moment for memory/personality continuity — speaking again
+			// would double up.
+			msg += "\n[NO_REPLY unless worth saying — phrase already spoken locally.]"
 		case "motion.activity":
 			// Prefer the value LeLamp shipped in this request payload
 			// over mood.CurrentUser(); they should match (mood was just

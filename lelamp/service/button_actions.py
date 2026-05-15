@@ -17,6 +17,8 @@ import subprocess
 import threading
 import time
 
+import requests
+
 import lelamp.app_state as state
 from lelamp.i18n import (
     HEAD_PAT_PHRASES_BY_LANG,
@@ -31,6 +33,36 @@ logger = logging.getLogger(__name__)
 
 DOUBLE_CLICK_WINDOW = 0.4  # seconds to wait for second click
 LONG_PRESS_DURATION = 5.0  # seconds to hold for shutdown
+
+# Lumi Go sensing endpoint. Head-pat notify is fire-and-forget — Lumi
+# Go appends a NO_REPLY hint so the agent records the event in
+# conversation history without speaking back.
+LUMI_SENSING_URL = "http://127.0.0.1:5000/api/sensing/event"
+
+
+def _notify_head_pat(spoken: str):
+    """Tell Lumi Go that the lamp was just stroked. Called from the
+    head-pat TTS thread *after* speak_cached actually played a phrase,
+    so the rate is bounded by phrase playback (~1-3s) — no extra
+    debounce needed. TTS-busy strokes are dropped silently and never
+    notify, which is the right behaviour: the agent only learns about
+    petting moments the user actually heard a response to.
+
+    `spoken` is the exact phrase Lumi just said (incl. eleven_v3 audio
+    tags like [laughs] / [whispers]) so the agent can read Lumi's tone
+    and weave it into memory — "I laughed and said tickles" lands
+    differently than "I sighed and asked them to stop"."""
+    try:
+        requests.post(
+            LUMI_SENSING_URL,
+            json={
+                "type": "touch.head_pat",
+                "message": f'Lumi was petted and responded: "{spoken}"',
+            },
+            timeout=0.5,
+        )
+    except Exception:
+        pass
 
 
 def _current_lang() -> str:
@@ -128,13 +160,19 @@ def triple_click_action(source: str = "button"):
 def head_pat_action(source: str = "touch"):
     """Speak a random pet response. Non-interrupting: if TTS is busy
     (Lumi already talking), drop silently so petting mid-speech doesn't
-    truncate her sentence."""
+    truncate her sentence. After the phrase actually plays, ping Lumi Go
+    so the agent records the petting moment (silent — NO_REPLY)."""
     text = _random_head_pat_phrase()
     logger.info("%s head pat -- %r", source, text)
     if not _tts_available() or not text:
         return
+
+    def _speak_then_notify():
+        if state.tts_service.speak_cached(text):
+            _notify_head_pat(text)
+
     threading.Thread(
-        target=lambda: state.tts_service.speak_cached(text),
+        target=_speak_then_notify,
         daemon=True,
         name=f"{source}-head-pat-tts",
     ).start()
