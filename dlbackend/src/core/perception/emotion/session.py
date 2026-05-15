@@ -6,6 +6,7 @@ filters results by threshold, and manages rate limiting.
 
 import asyncio
 import time
+from typing import Any
 
 import cv2.typing as cv2t
 import numpy as np
@@ -131,6 +132,7 @@ class EmotionPerceptionSession(
         *,
         confidence_threshold: float | Omit = omit,
         frame_interval: float | Omit = omit,
+        **kwargs: Any,
     ) -> None:
         super().update_config(
             confidence_threshold=confidence_threshold,

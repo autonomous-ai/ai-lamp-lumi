@@ -22,7 +22,7 @@ logger: logging.Logger = logging.getLogger(__name__)
 
 ws_router: APIRouter = APIRouter()
 http_router: APIRouter = APIRouter()
-_request_adapter: TypeAdapter = TypeAdapter(EmotionRequest)
+_request_adapter: TypeAdapter[EmotionRequest] = TypeAdapter(EmotionRequest)
 
 
 @ws_router.websocket("/emotion-analysis/ws")

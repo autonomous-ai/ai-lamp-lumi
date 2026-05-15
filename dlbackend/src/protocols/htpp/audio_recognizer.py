@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import base64
 import io
-from urllib.parse import urlparse
 import urllib.request
-from typing import Any, List
+from typing import Any
+from urllib.parse import urlparse
 
 import numpy as np
 from fastapi import APIRouter, HTTPException, Request, UploadFile
@@ -71,10 +71,7 @@ class RegisterSpeakerRequest(BaseModel):
         if self.wav_path:
             self.wav_path = _validate_wav_url(self.wav_path, "wav_path")
         if self.wav_paths:
-            self.wav_paths = [
-                _validate_wav_url(item, "wav_paths[]")
-                for item in self.wav_paths
-            ]
+            self.wav_paths = [_validate_wav_url(item, "wav_paths[]") for item in self.wav_paths]
         return self
 
 
@@ -150,7 +147,9 @@ def _get_audio_recognizer() -> BaseAudioRecognizer:
         _audio_recognizer = create_audio_recognizer()
         return _audio_recognizer
     except Exception as exc:
-        raise HTTPException(status_code=503, detail=f"Audio recognizer is unavailable: {exc}") from exc
+        raise HTTPException(
+            status_code=503, detail=f"Audio recognizer is unavailable: {exc}"
+        ) from exc
 
 
 def _split_waveform_to_chunks(
@@ -205,9 +204,9 @@ def _wav_bytes_to_chunks(raw: bytes, chunk_seconds: float = 0.5) -> tuple[list[l
         arr = arr.mean(axis=1)
     elif arr.ndim != 1:
         raise ValueError("Uploaded wav must be mono/stereo waveform.")
-    return _split_waveform_to_chunks(arr, sample_rate=sample_rate, chunk_seconds=chunk_seconds), int(
-        sample_rate
-    )
+    return _split_waveform_to_chunks(
+        arr, sample_rate=sample_rate, chunk_seconds=chunk_seconds
+    ), int(sample_rate)
 
 
 def _wav_url_to_chunks(url: str, chunk_seconds: float = 0.5) -> tuple[list[list[float]], int]:
@@ -221,7 +220,9 @@ def _wav_url_to_chunks(url: str, chunk_seconds: float = 0.5) -> tuple[list[list[
     return _wav_bytes_to_chunks(raw, chunk_seconds=chunk_seconds)
 
 
-async def _extract_register_request_from_http(request: Request) -> tuple[RegisterSpeakerRequest, list[list[float]]]:
+async def _extract_register_request_from_http(
+    request: Request,
+) -> tuple[RegisterSpeakerRequest, list[list[float]]]:
     content_type = request.headers.get("content-type", "").lower()
     if content_type.startswith("multipart/form-data"):
         form = await request.form()
@@ -242,7 +243,9 @@ async def _extract_register_request_from_http(request: Request) -> tuple[Registe
         merged_chunks: list[list[float]] = []
         last_sr = chunk_sample_rate
         for wav_file in wav_uploads:
-            file_chunks, file_sr = await _wav_upload_to_chunks(wav_file, chunk_seconds=chunk_seconds)
+            file_chunks, file_sr = await _wav_upload_to_chunks(
+                wav_file, chunk_seconds=chunk_seconds
+            )
             merged_chunks.extend(file_chunks)
             last_sr = file_sr
 
@@ -276,7 +279,9 @@ async def _extract_register_request_from_http(request: Request) -> tuple[Registe
     return payload, chunks
 
 
-async def _extract_recognize_request_from_http(request: Request) -> tuple[RecognizeSpeakerRequest, list[list[float]]]:
+async def _extract_recognize_request_from_http(
+    request: Request,
+) -> tuple[RecognizeSpeakerRequest, list[list[float]]]:
     content_type = request.headers.get("content-type", "").lower()
     if content_type.startswith("multipart/form-data"):
         form = await request.form()
@@ -400,10 +405,7 @@ async def embed_audio(req: EmbedAudioRequest):
         agg_vec = np.asarray(agg, dtype=np.float32).flatten()
         chunk_payload: list[list[float]] | None = None
         if req.return_chunks:
-            chunk_payload = [
-                np.asarray(e, dtype=np.float32).flatten().tolist()
-                for e in chunk_embs
-            ]
+            chunk_payload = [np.asarray(e, dtype=np.float32).flatten().tolist() for e in chunk_embs]
         return EmbedAudioResponse(
             embedding=agg_vec.tolist(),
             embedding_dim=int(agg_vec.shape[0]),
@@ -425,4 +427,3 @@ async def list_speakers():
         for name, emb in sorted(db.items())
     ]
     return SpeakerListResponse(total=len(speakers), speakers=speakers)
-

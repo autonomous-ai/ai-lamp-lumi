@@ -1,6 +1,7 @@
 import asyncio
 import time
 from collections import deque
+from typing import Any
 
 import cv2.typing as cv2t
 import numpy as np
@@ -138,6 +139,7 @@ class ActionPerceptionSession(
         threshold: float | Omit = omit,
         person_detection_enabled: bool | None | Omit = omit,
         person_min_area_ratio: float | Omit = omit,
+        **kwargs: Any,
     ) -> None:
         super().update_config(
             frame_interval=frame_interval,

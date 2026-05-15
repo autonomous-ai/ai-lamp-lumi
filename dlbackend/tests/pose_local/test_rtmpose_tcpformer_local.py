@@ -11,7 +11,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from protocols.utils.state import set_pose_model
-from core.perception.pose.pose import PoseAnalysis
+from core.models.pose import PosePerceptionSessionConfig
+from core.perception.pose.perception import PosePerception
 from core.perception.pose.utils import create_estimator_2d, create_lifter_3d
 
 TEST_API_KEY = "test-secret-key"
@@ -48,14 +49,16 @@ def model():
     lifter_3d = create_lifter_3d(
         model_name=PoseLifter3DEnum.TCPFORMER,
         model_path=TCPFORMER_MODEL_PATH,
-        frame_size=(320, 240),
+        input_size=(320, 240),
     )
     # Use a low confidence threshold so random frames pass the filter
-    pose_model = PoseAnalysis(
+    pose_model = PosePerception(
         estimator_2d=estimator_2d,
         lifter_3d=lifter_3d,
-        confidence_threshold_2d=0.0,
-        min_valid_keypoints=0,
+        default_config=PosePerceptionSessionConfig(
+            confidence_threshold_2d=0.0,
+            min_valid_keypoints=0,
+        ),
     )
     pose_model.start()
     return pose_model

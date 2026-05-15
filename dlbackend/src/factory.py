@@ -20,7 +20,8 @@ from core.perception.face.predictors.base import FaceDetector
 from core.perception.face.utils import create_face_detector
 from core.perception.person.predictors import PersonDetector
 from core.perception.person.utils import create_person_detector
-from core.perception.pose.pose import PoseAnalysis
+from core.models.pose import PosePerceptionSessionConfig
+from core.perception.pose.perception import PosePerception
 from core.perception.pose.utils import create_ergo_assessor, create_estimator_2d, create_lifter_3d
 
 logger: logging.Logger = logging.getLogger(__name__)
@@ -148,8 +149,8 @@ def build_emotion_perception() -> EmotionPerception:
     )
 
 
-def build_pose_analysis() -> PoseAnalysis:
-    """Create the PoseAnalysis from config settings."""
+def build_pose_perception() -> PosePerception:
+    """Create the PosePerception using shared predictors."""
     pose_ckpt: Path | None = Path(settings.pose.ckpt_path) if settings.pose.ckpt_path else None
     estimator_2d = create_estimator_2d(settings.pose.model, pose_ckpt)
 
@@ -158,10 +159,10 @@ def build_pose_analysis() -> PoseAnalysis:
         lifter_3d_ckpt: Path | None = (
             Path(settings.pose.lifter_3d_ckpt_path) if settings.pose.lifter_3d_ckpt_path else None
         )
-        lifter_3d_frame_size: tuple[int, int] | None = None
+        lifter_3d_input_size: tuple[int, int] | None = None
         if settings.pose.lifter_3d_frame_w is not None and settings.pose.lifter_3d_frame_h is not None:
-            lifter_3d_frame_size = (settings.pose.lifter_3d_frame_w, settings.pose.lifter_3d_frame_h)
-        lifter_3d = create_lifter_3d(settings.pose.lifter_3d, lifter_3d_ckpt, lifter_3d_frame_size)
+            lifter_3d_input_size = (settings.pose.lifter_3d_frame_w, settings.pose.lifter_3d_frame_h)
+        lifter_3d = create_lifter_3d(settings.pose.lifter_3d, lifter_3d_ckpt, lifter_3d_input_size)
 
     ergo_assessor = None
     if settings.pose.ergo_assessor is not None:
@@ -170,10 +171,15 @@ def build_pose_analysis() -> PoseAnalysis:
             confidence_threshold=settings.pose.ergo_confidence_threshold,
         )
 
-    return PoseAnalysis(
+    default_config: PosePerceptionSessionConfig = PosePerceptionSessionConfig()
+    if settings.pose.confidence_threshold_2d is not None:
+        default_config.confidence_threshold_2d = settings.pose.confidence_threshold_2d
+    if settings.pose.min_valid_keypoints is not None:
+        default_config.min_valid_keypoints = settings.pose.min_valid_keypoints
+
+    return PosePerception(
         estimator_2d=estimator_2d,
         lifter_3d=lifter_3d,
         ergo_assessor=ergo_assessor,
-        confidence_threshold_2d=settings.pose.confidence_threshold_2d,
-        min_valid_keypoints=settings.pose.min_valid_keypoints,
+        default_config=default_config,
     )

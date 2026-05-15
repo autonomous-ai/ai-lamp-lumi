@@ -11,7 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from protocols.utils.state import get_pose_model, set_pose_model
-from core.perception.pose.pose import PoseAnalysis
+from core.perception.pose.perception import PosePerception
 from core.perception.pose.utils import create_estimator_2d
 
 TEST_API_KEY = "test-secret-key"
@@ -55,7 +55,7 @@ def model():
     estimator_2d = create_estimator_2d(
         model_name=PoseEstimator2DEnum.RTMPOSE, model_path=RTMPOSE_MODEL_PATH
     )
-    pose_model = PoseAnalysis(estimator_2d=estimator_2d)
+    pose_model = PosePerception(estimator_2d=estimator_2d)
     pose_model.start()
     return pose_model
 

@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import base64
 import io
+import urllib.request
 from typing import Any
 from urllib.parse import urlparse
-import urllib.request
 
 import numpy as np
 from fastapi import APIRouter, HTTPException, Request, UploadFile
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, model_validator
 from starlette.datastructures import UploadFile as StarletteUploadFile
 
 from config import settings
@@ -46,9 +46,7 @@ def _is_http_url(value: str) -> bool:
 def _validate_wav_url(value: str, field_name: str) -> str:
     cleaned = value.strip()
     if not _is_http_url(cleaned):
-        raise ValueError(
-            f"{field_name} must be an http/https URL (local paths are not allowed)."
-        )
+        raise ValueError(f"{field_name} must be an http/https URL (local paths are not allowed).")
     return cleaned
 
 
