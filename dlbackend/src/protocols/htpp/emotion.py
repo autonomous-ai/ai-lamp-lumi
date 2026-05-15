@@ -99,11 +99,11 @@ async def emotion_recognize(req: EmotionRecognizeRequest):
     emotion = emotion_model.predict_face(face_crop)
 
     if emotion is None or emotion.confidence < req.threshold:
-        return EmotionRecognizeResponse(emotions=[])
+        return EmotionRecognizeResponse(detections=[])
 
     logger.info("[Emotion] Detected %s (%.2f)", emotion.emotion, emotion.confidence)
     return EmotionRecognizeResponse(
-        emotions=[
+        detections=[
             EmotionItem(
                 emotion=emotion.emotion,
                 confidence=emotion.confidence,

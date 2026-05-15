@@ -104,6 +104,38 @@ class TestHealthEndpoint:
         set_emotion_model(saved)
 
 
+class TestEmotionRecognizeHTTP:
+    def test_single_image_returns_detections(self, client):
+        resp = client.post(
+            "/api/dl/emotion-recognize",
+            json={"image_b64": _make_face_frame_b64()},
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "detections" in body
+        assert isinstance(body["detections"], list)
+
+    def test_single_image_no_face_returns_empty(self, client):
+        resp = client.post(
+            "/api/dl/emotion-recognize",
+            json={"image_b64": _make_frame_b64(), "threshold": 0.0},
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "detections" in body
+
+    def test_high_threshold_returns_empty(self, client):
+        resp = client.post(
+            "/api/dl/emotion-recognize",
+            json={"image_b64": _make_face_frame_b64(), "threshold": 1.0},
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 200
+        assert resp.json()["detections"] == []
+
+
 class TestEmotionAnalysisWebSocket:
     def test_frame_returns_detections(self, client):
         frame_b64 = _make_frame_b64()
