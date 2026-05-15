@@ -1,4 +1,8 @@
 import { useEffect, useRef, useState, useCallback, type ReactNode } from "react";
+import {
+  Paperclip, X, Copy, Check, RotateCcw, Download, ArrowDown,
+  Pin, ChevronRight, Sparkles, Plus, Trash2, History,
+} from "lucide-react";
 import { API } from "./types";
 import type { DisplayEvent, MonitorEvent } from "./types";
 
@@ -373,12 +377,42 @@ export function ChatSection({ events, isActive }: Props) {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  // Track hovered conversation so pin/delete buttons fade in only over the
+  // active row — keeps the sidebar list visually quiet at rest.
+  const [hoveredConvoId, setHoveredConvoId] = useState<string | null>(null);
+
+  // Shared compact icon-button style for the per-row pin/delete actions.
+  const hoverIconBtnStyle = (color: string): React.CSSProperties => ({
+    display: "inline-flex", alignItems: "center", justifyContent: "center",
+    width: 22, height: 22, padding: 0, borderRadius: 4,
+    background: "transparent", border: "none", cursor: "pointer",
+    color,
+  });
+
+  // Shared header pill button — used by both Export and History buttons in the
+  // chat top bar so the right-side toolbar is visually uniform.
+  const headerPillBtnStyle: React.CSSProperties = {
+    background: "var(--lm-surface)",
+    border: "1px solid var(--lm-border)",
+    borderRadius: 6,
+    cursor: "pointer",
+    color: "var(--lm-text-dim)",
+    padding: "4px 10px",
+    display: "inline-flex", alignItems: "center", gap: 5,
+    fontSize: 11, fontWeight: 600,
+  };
   const [filePreview, setFilePreview] = useState<string | null>(null);    // data: URL (images only)
   const [fileBase64, setFileBase64] = useState<string | null>(null);      // raw base64 for API
   const [fileName, setFileName] = useState<string | null>(null);
   const [fileSize, setFileSize] = useState<number>(0);
   const [fileIsImage, setFileIsImage] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  // Desktop (≥768px) always opens history by default; user can still collapse
+  // for a session. Mobile (<768px) stays collapsed so the chat area gets the
+  // full width. We don't persist the desktop preference — the request was that
+  // history is ALWAYS open on desktop by default.
+  const [sidebarOpen, setSidebarOpen] = useState<boolean>(
+    () => typeof window !== "undefined" && window.innerWidth >= 768,
+  );
   const [dragging, setDragging] = useState(false);
 
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -1046,164 +1080,185 @@ export function ChatSection({ events, isActive }: Props) {
 
   return (
     <div style={{ display: "flex", height: "100%", gap: 0, position: "relative" }}>
-      {/* ── Overlay backdrop ── */}
-      {sidebarOpen && (
-        <div
-          onClick={() => setSidebarOpen(false)}
-          style={{
-            position: "absolute", inset: 0, zIndex: 10,
-            background: "rgba(0,0,0,0.3)",
-          }}
-        />
-      )}
-      {/* ── Sidebar ── */}
+      {/* History panel is persistent — clicking outside does NOT close it.
+          Only the explicit collapse button (▶ in the panel header) closes it.
+          Lives as a normal flex item (NOT absolute) so opening it pushes the
+          chat area narrower instead of overlaying it. */}
       {sidebarOpen && (
       <div style={{
-        width: 260, flexShrink: 0,
-        position: "absolute", top: 0, right: 0, bottom: 0, zIndex: 11,
+        width: 280, flexShrink: 0, order: 2,
         borderLeft: "1px solid var(--lm-border)",
         display: "flex", flexDirection: "column",
         background: "var(--lm-sidebar)",
-        boxShadow: "-4px 0 16px rgba(0,0,0,0.2)",
       }}>
-        <div style={{ padding: "12px 12px 4px", display: "flex", flexDirection: "column", gap: 6 }}>
-          <div style={{ display: "flex", gap: 6 }}>
-            <button
-              onClick={newChat}
-              title="Ctrl+N"
-              style={{
-                flex: 1, padding: "8px 12px", borderRadius: 8,
-                background: "rgba(245,158,11,0.12)", border: "1px solid rgba(245,158,11,0.25)",
-                color: "var(--lm-amber)", fontSize: 12, fontWeight: 600,
-                cursor: "pointer", display: "flex", alignItems: "center", gap: 6,
-              }}
-            >
-              <span style={{ fontSize: 14 }}>+</span> New chat
-            </button>
+        {/* Header: title strip + actions. Consistent padding with rest of sidebar (14px horizontal). */}
+        <div style={{
+          padding: "14px 14px 10px",
+          borderBottom: "1px solid var(--lm-border)",
+          display: "flex", flexDirection: "column", gap: 10,
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <History size={14} style={{ color: "var(--lm-text-muted)" }} />
+            <span style={{
+              fontSize: 10, fontWeight: 700, color: "var(--lm-text-muted)",
+              textTransform: "uppercase", letterSpacing: "0.08em",
+            }}>History</span>
+            <span style={{ flex: 1 }} />
             <button
               onClick={() => setSidebarOpen(false)}
               style={{
-                padding: "8px 8px", borderRadius: 8,
-                background: "var(--lm-surface)", border: "1px solid var(--lm-border)",
-                color: "var(--lm-text-muted)", fontSize: 12,
+                width: 24, height: 24, padding: 0, borderRadius: 5,
+                background: "transparent", border: "none",
+                color: "var(--lm-text-muted)",
                 cursor: "pointer", flexShrink: 0,
+                display: "flex", alignItems: "center", justifyContent: "center",
               }}
-              title="Collapse sidebar"
-            >◀</button>
+              title="Hide history"
+              aria-label="Hide history"
+            ><ChevronRight size={14} /></button>
           </div>
+          <button
+            onClick={newChat}
+            title="New chat (Ctrl+N)"
+            style={{
+              width: "100%", padding: "9px 12px", borderRadius: 8,
+              background: "color-mix(in srgb, var(--lm-amber) 14%, transparent)",
+              border: "1px solid color-mix(in srgb, var(--lm-amber) 30%, transparent)",
+              color: "var(--lm-amber)", fontSize: 12, fontWeight: 600,
+              cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+            }}
+          >
+            <Plus size={14} /> New chat
+          </button>
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search chats…"
             style={{
-              width: "100%", padding: "6px 10px", borderRadius: 6,
+              width: "100%", padding: "7px 10px", borderRadius: 6,
               background: "var(--lm-surface)", border: "1px solid var(--lm-border)",
-              color: "var(--lm-text)", fontSize: 11, outline: "none",
+              color: "var(--lm-text)", fontSize: 11.5, outline: "none",
+              boxSizing: "border-box",
             }}
           />
         </div>
-        <div style={{ flex: 1, overflowY: "auto", padding: "4px 8px 12px" }}>
+        <div style={{ flex: 1, overflowY: "auto", padding: "6px 10px 12px" }}>
           {filtered.length === 0 && (
             <div style={{ padding: 16, textAlign: "center", color: "var(--lm-text-muted)", fontSize: 11 }}>
               {search ? "No matches" : "No conversations yet"}
             </div>
           )}
           {grouped.map(({ label, items }) => (
-            <div key={label}>
-              <div style={{ fontSize: 10, fontWeight: 600, color: "var(--lm-text-muted)", padding: "10px 6px 4px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+            <div key={label} style={{ marginBottom: 6 }}>
+              <div style={{
+                fontSize: 9.5, fontWeight: 700, color: "var(--lm-text-muted)",
+                padding: "10px 6px 6px", textTransform: "uppercase", letterSpacing: "0.06em",
+              }}>
                 {label}
               </div>
-              {items.map((c) => (
+              {items.map((c) => {
+                const isActive = c.id === activeId;
+                const isHovered = hoveredConvoId === c.id;
+                return (
                 <div
                   key={c.id}
                   onClick={() => switchTo(c.id)}
+                  onMouseEnter={() => setHoveredConvoId(c.id)}
+                  onMouseLeave={() => setHoveredConvoId((cur) => (cur === c.id ? null : cur))}
                   style={{
-                    padding: "7px 8px", borderRadius: 6, cursor: "pointer",
-                    background: c.id === activeId ? "rgba(245,158,11,0.1)" : "transparent",
-                    border: c.id === activeId ? "1px solid rgba(245,158,11,0.2)" : "1px solid transparent",
-                    marginBottom: 2, display: "flex", alignItems: "center", gap: 6,
+                    position: "relative",
+                    padding: "8px 10px", borderRadius: 7, cursor: "pointer",
+                    background: isActive
+                      ? "color-mix(in srgb, var(--lm-amber) 14%, transparent)"
+                      : isHovered ? "color-mix(in srgb, var(--lm-text) 4%, transparent)" : "transparent",
+                    marginBottom: 2,
                     transition: "background 0.15s",
                   }}
-                  onMouseEnter={(e) => { if (c.id !== activeId) (e.currentTarget.style.background = "rgba(255,255,255,0.03)"); }}
-                  onMouseLeave={(e) => { if (c.id !== activeId) (e.currentTarget.style.background = "transparent"); }}
                 >
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    {editingId === c.id ? (
-                      <input
-                        autoFocus
-                        value={editTitle}
-                        onChange={(e) => setEditTitle(e.target.value)}
-                        onBlur={commitRename}
-                        onKeyDown={(e) => { if (e.key === "Enter") commitRename(); if (e.key === "Escape") setEditingId(null); }}
-                        onClick={(e) => e.stopPropagation()}
-                        style={{
-                          fontSize: 12, width: "100%", background: "var(--lm-surface)",
-                          border: "1px solid var(--lm-amber)", borderRadius: 4,
-                          color: "var(--lm-text)", padding: "1px 4px", outline: "none",
-                        }}
-                      />
-                    ) : (
-                      <div
-                        onDoubleClick={(e) => { e.stopPropagation(); startRename(c); }}
-                        title="Double-click to rename"
-                        style={{
-                          fontSize: 12, color: c.id === activeId ? "var(--lm-amber)" : "var(--lm-text)",
+                  {/* Pin badge — small inline marker top-right when pinned */}
+                  {c.pinned && !isHovered && (
+                    <span style={{
+                      position: "absolute", top: 6, right: 8,
+                      color: "var(--lm-amber)", display: "flex", alignItems: "center",
+                      pointerEvents: "none",
+                    }}><Pin size={10} fill="currentColor" /></span>
+                  )}
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      {editingId === c.id ? (
+                        <input
+                          autoFocus
+                          value={editTitle}
+                          onChange={(e) => setEditTitle(e.target.value)}
+                          onBlur={commitRename}
+                          onKeyDown={(e) => { if (e.key === "Enter") commitRename(); if (e.key === "Escape") setEditingId(null); }}
+                          onClick={(e) => e.stopPropagation()}
+                          style={{
+                            fontSize: 12, width: "100%", background: "var(--lm-surface)",
+                            border: "1px solid var(--lm-amber)", borderRadius: 4,
+                            color: "var(--lm-text)", padding: "1px 4px", outline: "none",
+                          }}
+                        />
+                      ) : (
+                        <div
+                          onDoubleClick={(e) => { e.stopPropagation(); startRename(c); }}
+                          title="Double-click to rename"
+                          style={{
+                            fontSize: 12.5,
+                            color: isActive ? "var(--lm-amber)" : "var(--lm-text)",
+                            whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                            fontWeight: isActive ? 600 : 500,
+                            paddingRight: c.pinned ? 14 : 0,
+                          }}
+                        >
+                          {c.title}
+                        </div>
+                      )}
+                      {c.messages.length > 0 && (
+                        <div style={{
+                          fontSize: 10.5, color: "var(--lm-text-muted)", marginTop: 3,
                           whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-                          fontWeight: c.id === activeId ? 600 : 400,
+                        }}>
+                          {(() => {
+                            const last = c.messages[c.messages.length - 1];
+                            const txt = last.text || "…";
+                            return (last.role === "lumi" ? "↪ " : "") + (txt.length > 40 ? txt.slice(0, 40) + "…" : txt);
+                          })()}
+                        </div>
+                      )}
+                    </div>
+                    {/* Hover-reveal actions — keep the row clean when idle. */}
+                    <div style={{
+                      display: "flex", gap: 2, flexShrink: 0,
+                      opacity: isHovered ? 1 : 0,
+                      pointerEvents: isHovered ? "auto" : "none",
+                      transition: "opacity 0.15s",
+                    }}>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); togglePin(c.id); }}
+                        style={hoverIconBtnStyle(c.pinned ? "var(--lm-amber)" : "var(--lm-text-muted)")}
+                        title={c.pinned ? "Unpin" : "Pin to top"}
+                        aria-label={c.pinned ? "Unpin" : "Pin"}
+                      >{c.pinned ? <Pin size={12} fill="currentColor" /> : <Pin size={12} />}</button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); deleteConvo(c.id); }}
+                        style={{
+                          ...hoverIconBtnStyle(confirmDeleteId === c.id ? "var(--lm-red)" : "var(--lm-text-muted)"),
+                          background: confirmDeleteId === c.id ? "color-mix(in srgb, var(--lm-red) 20%, transparent)" : "transparent",
                         }}
-                      >
-                        {c.title}
-                      </div>
-                    )}
-                    {c.messages.length > 0 && (
-                      <div style={{
-                        fontSize: 10.5, color: "var(--lm-text-muted)", marginTop: 2,
-                        whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-                      }}>
-                        {(() => {
-                          const last = c.messages[c.messages.length - 1];
-                          const prefix = last.role === "lumi" ? "✦ " : "";
-                          const txt = last.text || "…";
-                          return prefix + (txt.length > 40 ? txt.slice(0, 40) + "…" : txt);
-                        })()}
-                      </div>
-                    )}
-                  </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 2, flexShrink: 0 }}>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); togglePin(c.id); }}
-                      style={{
-                        background: "none", border: "none", cursor: "pointer",
-                        color: c.pinned ? "var(--lm-amber)" : "var(--lm-text-muted)",
-                        fontSize: 10, padding: "0 2px", opacity: c.pinned ? 0.9 : 0.4,
-                        lineHeight: 1, transition: "opacity 0.15s",
-                      }}
-                      onMouseEnter={(e) => { e.currentTarget.style.opacity = "1"; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.opacity = c.pinned ? "0.9" : "0.4"; }}
-                      title={c.pinned ? "Unpin" : "Pin to top"}
-                    >{c.pinned ? "◆" : "◇"}</button>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); deleteConvo(c.id); }}
-                      style={{
-                        background: "none", border: "none", cursor: "pointer",
-                        color: confirmDeleteId === c.id ? "var(--lm-red)" : "var(--lm-text-muted)",
-                        fontSize: confirmDeleteId === c.id ? 10 : 13,
-                        padding: "0 2px", opacity: confirmDeleteId === c.id ? 1 : 0.5,
-                        lineHeight: 1, fontWeight: confirmDeleteId === c.id ? 600 : 400,
-                        transition: "all 0.15s",
-                      }}
-                      onMouseEnter={(e) => { if (confirmDeleteId !== c.id) { e.currentTarget.style.opacity = "1"; e.currentTarget.style.color = "var(--lm-red)"; } }}
-                      onMouseLeave={(e) => { if (confirmDeleteId !== c.id) { e.currentTarget.style.opacity = "0.5"; e.currentTarget.style.color = "var(--lm-text-muted)"; } }}
-                      title={confirmDeleteId === c.id ? "Click again to confirm" : "Delete conversation"}
-                    >{confirmDeleteId === c.id ? "del?" : "×"}</button>
+                        title={confirmDeleteId === c.id ? "Click again to confirm" : "Delete"}
+                        aria-label="Delete conversation"
+                      >{confirmDeleteId === c.id ? <Check size={12} /> : <Trash2 size={12} />}</button>
+                    </div>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           ))}
         </div>
         {convos.length > 1 && (
-          <div style={{ padding: "8px 12px", borderTop: "1px solid var(--lm-border)" }}>
+          <div style={{ padding: "10px 14px", borderTop: "1px solid var(--lm-border)" }}>
             <button
               onClick={() => {
                 if (confirm(`Delete all ${convos.filter((c) => !c.pinned).length} unpinned conversations?`)) {
@@ -1212,9 +1267,9 @@ export function ChatSection({ events, isActive }: Props) {
                 }
               }}
               style={{
-                width: "100%", padding: "5px 0", borderRadius: 6,
+                width: "100%", padding: "6px 0", borderRadius: 6,
                 background: "none", border: "1px solid var(--lm-border)",
-                color: "var(--lm-text-muted)", fontSize: 10, cursor: "pointer",
+                color: "var(--lm-text-muted)", fontSize: 10.5, cursor: "pointer",
                 transition: "all 0.15s",
               }}
               onMouseEnter={(e) => { e.currentTarget.style.color = "var(--lm-red)"; e.currentTarget.style.borderColor = "var(--lm-red)"; }}
@@ -1253,43 +1308,52 @@ export function ChatSection({ events, isActive }: Props) {
           display: "flex", alignItems: "center", justifyContent: "space-between",
           background: "var(--lm-sidebar)", minHeight: 36,
         }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            {!sidebarOpen && (
-              <button
-                onClick={() => setSidebarOpen(true)}
-                style={{
-                  background: "none", border: "none", cursor: "pointer",
-                  color: "var(--lm-text-muted)", fontSize: 12, padding: "2px 4px",
-                }}
-                title="Show sidebar"
-              >▶</button>
-            )}
-            <span style={{ fontSize: 12, color: "var(--lm-text-dim)", fontWeight: 500 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, flex: 1 }}>
+            <span style={{
+              fontSize: 13.5,
+              color: active ? "var(--lm-text)" : "var(--lm-text-muted)",
+              fontWeight: 700,
+              letterSpacing: "0.01em",
+              whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+            }}>
               {active ? active.title : "Select or start a chat"}
             </span>
           </div>
-          {active && active.messages.length > 0 && (
-            <div style={{ display: "flex", gap: 8 }}>
+          {/* Header actions — Export + History sharing the same pill style for a
+              uniform right-side toolbar. */}
+          <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+            {active && active.messages.length > 0 && (
               <button
                 onClick={exportConversation}
-                style={{
-                  background: "none", border: "none", cursor: "pointer",
-                  fontSize: 10, color: "var(--lm-text-muted)", padding: "2px 6px",
-                }}
+                style={headerPillBtnStyle}
                 title="Export as text"
-              >↓ export</button>
-            </div>
-          )}
+                aria-label="Export conversation"
+              ><Download size={12} /> Export</button>
+            )}
+            {!sidebarOpen && (
+              <button
+                onClick={() => setSidebarOpen(true)}
+                style={headerPillBtnStyle}
+                title="Show history"
+                aria-label="Show history"
+              ><History size={13} /> History</button>
+            )}
+          </div>
         </div>
-        {/* Messages */}
+        {/* Messages — scroll happens on the outer wrapper; the inner column is
+            constrained to a comfortable reading width (centered) so messages
+            don't sprawl edge-to-edge on wide displays. */}
         <div
           ref={scrollContainerRef}
           onScroll={onScroll}
-          style={{ flex: 1, overflowY: "auto", padding: "20px 16px 8px", display: "flex", flexDirection: "column", gap: 12 }}
+          style={{ flex: 1, overflowY: "auto", padding: "20px 16px 8px" }}
         >
+          <div style={{ maxWidth: 760, margin: "0 auto", width: "100%", display: "flex", flexDirection: "column", gap: 12 }}>
           {messages.length === 0 && (
             <div style={{ margin: "auto", textAlign: "center", color: "var(--lm-text-muted)", fontSize: 13, lineHeight: 1.8 }}>
-              <div style={{ fontSize: 28, marginBottom: 10 }}>✦</div>
+              <div style={{ marginBottom: 10, display: "flex", justifyContent: "center", color: "var(--lm-amber)" }}>
+                <Sparkles size={28} />
+              </div>
               <div>Chat with Lumi</div>
               <div style={{ fontSize: 11, marginTop: 4 }}>Type a message or press Shift+Enter for multi-line</div>
             </div>
@@ -1405,13 +1469,15 @@ export function ChatSection({ events, isActive }: Props) {
                       onClick={() => copyMessage(msg)}
                       style={{
                         background: "none", border: "none", cursor: "pointer",
-                        fontSize: 10, color: copiedId === msg.id ? "var(--lm-green)" : "var(--lm-text-muted)",
+                        color: copiedId === msg.id ? "var(--lm-green)" : "var(--lm-text-muted)",
                         padding: 0, opacity: 0.6, transition: "opacity 0.15s",
+                        display: "inline-flex", alignItems: "center",
                       }}
                       onMouseEnter={(e) => { e.currentTarget.style.opacity = "1"; }}
                       onMouseLeave={(e) => { e.currentTarget.style.opacity = "0.6"; }}
                       title="Copy"
-                    >{copiedId === msg.id ? "✓" : "⎘"}</button>
+                      aria-label="Copy message"
+                    >{copiedId === msg.id ? <Check size={12} /> : <Copy size={12} />}</button>
                   )}
                   {msg.error && msg.role === "lumi" && (
                     <button
@@ -1420,11 +1486,12 @@ export function ChatSection({ events, isActive }: Props) {
                         background: "none", border: "none", cursor: "pointer",
                         fontSize: 10, color: "var(--lm-amber)", padding: 0,
                         opacity: 0.7, transition: "opacity 0.15s",
+                        display: "inline-flex", alignItems: "center", gap: 3,
                       }}
                       onMouseEnter={(e) => { e.currentTarget.style.opacity = "1"; }}
                       onMouseLeave={(e) => { e.currentTarget.style.opacity = "0.7"; }}
                       title="Retry"
-                    >↻ retry</button>
+                    ><RotateCcw size={11} /> retry</button>
                   )}
                   {msg.tokenUsage && msg.role === "lumi" && (
                     <span style={{ fontSize: 9, color: "var(--lm-text-muted)", opacity: 0.5 }}
@@ -1440,6 +1507,7 @@ export function ChatSection({ events, isActive }: Props) {
             );
           })}
           <div ref={bottomRef} />
+          </div>
         </div>
 
         {/* Scroll to bottom */}
@@ -1450,92 +1518,137 @@ export function ChatSection({ events, isActive }: Props) {
               position: "absolute", bottom: 80, right: 20,
               width: 32, height: 32, borderRadius: "50%",
               background: "var(--lm-surface)", border: "1px solid var(--lm-border)",
-              color: "var(--lm-text-muted)", fontSize: 14,
+              color: "var(--lm-text-muted)",
               cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
               boxShadow: "0 2px 8px rgba(0,0,0,0.3)", transition: "opacity 0.2s",
             }}
             title="Scroll to bottom"
-          >↓</button>
+            aria-label="Scroll to bottom"
+          ><ArrowDown size={16} /></button>
         )}
 
-        {/* File preview */}
-        {fileName && (
-          <div style={{
-            padding: "8px 16px 0", borderTop: "1px solid var(--lm-border)",
-            background: "var(--lm-sidebar)", display: "flex", alignItems: "center", gap: 8,
-          }}>
-            {filePreview ? (
-              <img src={filePreview} alt="preview" style={{ height: 48, borderRadius: 6, border: "1px solid var(--lm-border)" }} />
-            ) : (
+        {/* Input — ChatGPT-style pill. File preview lives INSIDE the pill (top
+            slot) so the attach state is visually part of the input, not a
+            separate banner. Centered with max-width like the messages column. */}
+        <div style={{
+          padding: "10px 16px 14px",
+          borderTop: "1px solid var(--lm-border)",
+          background: "var(--lm-sidebar)",
+        }}>
+          <div style={{ maxWidth: 760, margin: "0 auto", width: "100%" }}>
+            <input ref={fileInputRef} type="file" style={{ display: "none" }} onChange={handleFileSelect} />
+            <div style={{
+              display: "flex", flexDirection: "column", gap: 6,
+              background: "var(--lm-surface)",
+              border: "1px solid var(--lm-border)",
+              borderRadius: 18,
+              padding: "6px 6px 6px 6px",
+              boxShadow: "0 1px 2px rgba(0,0,0,0.15)",
+              transition: "border-color 0.15s",
+            }}>
+              {/* Attached file chip inside the pill — fixed slot above the input row. */}
+              {fileName && (
+                <div style={{
+                  display: "flex", alignItems: "center", gap: 8,
+                  padding: "6px 8px",
+                  margin: "0 2px",
+                  borderRadius: 12,
+                  background: "color-mix(in srgb, var(--lm-amber) 8%, transparent)",
+                  border: "1px solid color-mix(in srgb, var(--lm-amber) 25%, transparent)",
+                }}>
+                  {filePreview ? (
+                    <img src={filePreview} alt="preview" style={{ height: 36, borderRadius: 6, flexShrink: 0 }} />
+                  ) : (
+                    <div style={{
+                      width: 36, height: 36, borderRadius: 6,
+                      background: "color-mix(in srgb, var(--lm-amber) 15%, transparent)",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      color: "var(--lm-amber)", flexShrink: 0,
+                    }}><Paperclip size={16} /></div>
+                  )}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 11.5, color: "var(--lm-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fileName}</div>
+                    <div style={{ fontSize: 10, color: "var(--lm-text-muted)" }}>
+                      {fileSize < 1024 ? `${fileSize} B` : fileSize < 1024 * 1024 ? `${(fileSize / 1024).toFixed(0)} KB` : `${(fileSize / 1024 / 1024).toFixed(1)} MB`}
+                    </div>
+                  </div>
+                  <button
+                    onClick={clearFile}
+                    style={{
+                      background: "transparent", border: "none", cursor: "pointer",
+                      color: "var(--lm-text-muted)", padding: 4, borderRadius: 4,
+                      display: "flex", alignItems: "center",
+                    }}
+                    title="Remove file"
+                    aria-label="Remove file"
+                  ><X size={14} /></button>
+                </div>
+              )}
+
               <div style={{
-                height: 48, width: 48, borderRadius: 6, border: "1px solid var(--lm-border)",
-                background: "var(--lm-surface)", display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: 18,
-              }}>📎</div>
-            )}
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 11, color: "var(--lm-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fileName}</div>
-              <div style={{ fontSize: 10, color: "var(--lm-text-muted)" }}>
-                {fileSize < 1024 ? `${fileSize} B` : fileSize < 1024 * 1024 ? `${(fileSize / 1024).toFixed(0)} KB` : `${(fileSize / 1024 / 1024).toFixed(1)} MB`}
-              </div>
+                display: "flex", alignItems: "flex-end", gap: 6,
+              }}>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={sending}
+                style={{
+                  background: "transparent", border: "none",
+                  borderRadius: "50%", width: 34, height: 34,
+                  cursor: sending ? "default" : "pointer",
+                  color: "var(--lm-text-muted)", flexShrink: 0,
+                  opacity: sending ? 0.5 : 0.85, transition: "opacity 0.15s, background 0.15s",
+                  display: "inline-flex", alignItems: "center", justifyContent: "center",
+                }}
+                onMouseEnter={(e) => { if (!sending) { e.currentTarget.style.opacity = "1"; e.currentTarget.style.background = "color-mix(in srgb, var(--lm-text) 8%, transparent)"; } }}
+                onMouseLeave={(e) => { e.currentTarget.style.opacity = sending ? "0.5" : "0.85"; e.currentTarget.style.background = "transparent"; }}
+                title="Attach file (max 10 MB)"
+                aria-label="Attach file"
+              ><Paperclip size={17} /></button>
+              <textarea
+                ref={textareaRef}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={onKeyDown}
+                onPaste={onPaste}
+                disabled={sending}
+                placeholder="Message Lumi…"
+                rows={1}
+                style={{
+                  flex: 1, minWidth: 0,
+                  background: "transparent", border: "none",
+                  padding: "8px 4px",
+                  color: "var(--lm-text)", fontSize: 14,
+                  outline: "none", opacity: sending ? 0.6 : 1,
+                  resize: "none", lineHeight: 1.5, fontFamily: "inherit",
+                  minHeight: 22, maxHeight: 200, overflow: "auto",
+                  boxSizing: "border-box",
+                }}
+              />
+              <button
+                onClick={send}
+                disabled={!input.trim() || sending}
+                style={{
+                  width: 34, height: 34, borderRadius: "50%", flexShrink: 0,
+                  background: input.trim() && !sending
+                    ? "var(--lm-amber)"
+                    : "color-mix(in srgb, var(--lm-text) 15%, transparent)",
+                  border: "none",
+                  color: input.trim() && !sending ? "#0b0a08" : "var(--lm-text-muted)",
+                  cursor: input.trim() && !sending ? "pointer" : "default",
+                  transition: "all 0.15s",
+                  display: "inline-flex", alignItems: "center", justifyContent: "center",
+                }}
+                title="Send (Enter)"
+                aria-label="Send message"
+              >{sending ? <span style={{ fontSize: 14, fontWeight: 700 }}>…</span> : <ArrowDown size={16} style={{ transform: "rotate(180deg)" }} strokeWidth={2.5} />}</button>
             </div>
-            <button
-              onClick={clearFile}
-              style={{
-                background: "none", border: "none", cursor: "pointer",
-                color: "var(--lm-text-muted)", fontSize: 14, padding: "0 4px",
-              }}
-              title="Remove file"
-            >×</button>
+            <div style={{
+              fontSize: 10, color: "var(--lm-text-muted)",
+              textAlign: "center", marginTop: 6, opacity: 0.7,
+            }}>
+              Press Enter to send · Shift+Enter for new line
+            </div>
           </div>
-        )}
-
-        {/* Input */}
-        <div style={{ padding: "12px 16px", borderTop: fileName ? "none" : "1px solid var(--lm-border)", display: "flex", gap: 8, alignItems: "flex-end", background: "var(--lm-sidebar)", minWidth: 0 }}>
-          <input ref={fileInputRef} type="file" style={{ display: "none" }} onChange={handleFileSelect} />
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            disabled={sending}
-            style={{
-              background: "none", border: "1px solid var(--lm-border)", borderRadius: 8,
-              cursor: sending ? "default" : "pointer", padding: "8px 10px",
-              color: "var(--lm-text-muted)", fontSize: 14, flexShrink: 0,
-              opacity: sending ? 0.5 : 0.7, transition: "opacity 0.15s",
-            }}
-            onMouseEnter={(e) => { if (!sending) e.currentTarget.style.opacity = "1"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.opacity = sending ? "0.5" : "0.7"; }}
-            title="Attach file (max 10 MB)"
-          >📎</button>
-          <textarea
-            ref={textareaRef}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={onKeyDown}
-            onPaste={onPaste}
-            disabled={sending}
-            placeholder="Message Lumi…"
-            rows={1}
-            style={{
-              flex: 1, minWidth: 0, background: "var(--lm-surface)", border: "1px solid var(--lm-border)",
-              borderRadius: 8, padding: "9px 13px", color: "var(--lm-text)", fontSize: 13,
-              outline: "none", opacity: sending ? 0.6 : 1,
-              resize: "none", lineHeight: 1.5, fontFamily: "inherit",
-              minHeight: 38, maxHeight: 120, overflow: "auto",
-              boxSizing: "border-box",
-            }}
-          />
-          <button
-            onClick={send}
-            disabled={!input.trim() || sending}
-            style={{
-              padding: "9px 16px", borderRadius: 8, flexShrink: 0,
-              background: input.trim() && !sending ? "rgba(245,158,11,0.2)" : "var(--lm-surface)",
-              border: `1px solid ${input.trim() && !sending ? "rgba(245,158,11,0.4)" : "var(--lm-border)"}`,
-              color: input.trim() && !sending ? "var(--lm-amber)" : "var(--lm-text-muted)",
-              fontSize: 13, fontWeight: 600, cursor: input.trim() && !sending ? "pointer" : "default",
-              transition: "all 0.15s", marginBottom: 1,
-            }}
-          >{sending ? "…" : "Send"}</button>
         </div>
       </div>
     </div>
