@@ -501,6 +501,10 @@ export function ChatSection({ events, isActive }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pendingRunIdRef = useRef<string | null>(null);
+  // Snapshot of the user's outgoing text for the pending run. Used to pair a
+  // steered/merged turn (OpenClaw re-fires the same input under a fresh UUID
+  // run) — see steered-pair branch in the events useEffect below.
+  const pendingUserTextRef = useRef<string | null>(null);
   const resolvedIds = useRef<Set<string>>(new Set());
   const deltaBufRef = useRef<Map<string, string>>(new Map()); // runId → accumulated delta text
   const thinkingBufRef = useRef<Map<string, string>>(new Map()); // runId → accumulated thinking text
@@ -606,6 +610,7 @@ export function ChatSection({ events, isActive }: Props) {
       thinkingBufRef.current.delete(runId);
       resolvedIds.current.add(runId);
       pendingRunIdRef.current = null;
+      pendingUserTextRef.current = null;
       setSending(false);
       setThinkingText(null);
       const chips = Array.from(toolChipsRef.current.values());
@@ -789,13 +794,62 @@ export function ChatSection({ events, isActive }: Props) {
     const pending = pendingRunIdRef.current;
     if (!pending || resolvedIds.current.has(pending)) return;
 
+    // Steered/merged pattern: OpenClaw closes the lumi run with chat_final_empty
+    // and re-fires the same input under a fresh UUID-keyed turn (see
+    // docs/debug/openclaw-selfreplay.md). The actual reply (tts_send,
+    // lifecycle_end, etc.) flows under the UUID, not the lumi run id, so
+    // the loop below would never see it without this pairing.
+    //
+    // Pair by matching the user's outgoing text against a chat_input
+    // (source=channel) that arrives AFTER chat_final_empty in the events
+    // array — `events` is oldest-first, so index comparison gives temporal
+    // order. The forward-only scan prevents accidental pairing with an
+    // earlier same-text Telegram turn from elsewhere in the day.
+    //
+    // Exact-equal after prefix strip — Flow Monitor's pair-tint uses
+    // substring containment with a 32-char guard, but we have the user's
+    // full original text in pendingUserTextRef so exact match works for
+    // short inputs like "hello" too.
+    const acceptedRunIds = new Set<string>([pending]);
+    const userText = pendingUserTextRef.current;
+    if (userText) {
+      let emptyIdx = -1;
+      for (let i = 0; i < events.length; i++) {
+        const ev = events[i];
+        if (ev.type !== "flow_event") continue;
+        const d = ev.detail as any;
+        if (d?.node !== "chat_final_empty") continue;
+        const r = ev.runId ?? d?.run_id ?? d?.data?.run_id;
+        if (r === pending) { emptyIdx = i; break; }
+      }
+      if (emptyIdx >= 0) {
+        const expected = userText.trim().toLowerCase();
+        for (let i = emptyIdx + 1; i < events.length; i++) {
+          const ev = events[i];
+          if (ev.type !== "flow_event") continue;
+          const d = ev.detail as any;
+          if (d?.node !== "chat_input") continue;
+          if (d?.data?.source !== "channel") continue;
+          const msg = String(d?.data?.message ?? "");
+          if (!msg) continue;
+          const norm = msg.replace(/^\[[^\]]+\]\s*/, "").trim().toLowerCase();
+          if (norm !== expected) continue;
+          const uuidId = d?.data?.run_id ?? ev.runId;
+          if (uuidId && uuidId !== pending) {
+            acceptedRunIds.add(uuidId);
+            break;
+          }
+        }
+      }
+    }
+
     for (const ev of [...events].reverse()) {
       const evRunId: string | undefined =
         ev.runId ??
         (ev.detail as any)?.run_id ??
         (ev.detail as any)?.runId ??
         (ev.detail as any)?.data?.run_id;
-      if (!evRunId || evRunId !== pending) continue;
+      if (!evRunId || !acceptedRunIds.has(evRunId)) continue;
 
       const d = ev.detail as Record<string, any> | undefined;
       if (ev.type === "flow_event" && (d?.node === "tts_send" || d?.node === "tts_suppressed")) {
@@ -1082,6 +1136,7 @@ export function ChatSection({ events, isActive }: Props) {
       if (json.status === 1 && json.data?.runId) {
         const runId: string = json.data.runId;
         pendingRunIdRef.current = runId;
+        pendingUserTextRef.current = text;
         const replyTime = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
         setConvos((prev) =>
           prev.map((c) =>
