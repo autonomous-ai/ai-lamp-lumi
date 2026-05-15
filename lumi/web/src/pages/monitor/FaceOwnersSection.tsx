@@ -116,6 +116,9 @@ export function FaceOwnersSection() {
   // Person card expand state — cards start collapsed so the grid stays dense.
   // Auto-expands the currently-active user the first time it appears.
   const [expandedPerson, setExpandedPerson] = useState<Record<string, boolean>>({});
+  // Tracks which card is hovered so its action buttons fade in (cleaner UX
+  // than a permanent row of icons cluttering every card).
+  const [hoveredPerson, setHoveredPerson] = useState<string | null>(null);
 
   // Unknown voice clusters (/voice/strangers).
   const [strangers, setStrangers] = useState<StrangersData | null>(null);
@@ -634,10 +637,20 @@ export function FaceOwnersSection() {
                 }
               : S.card;
             return (
-            <div key={person.label} style={cardStyle}>
+            <div
+              key={person.label}
+              style={cardStyle}
+              onMouseEnter={() => setHoveredPerson(person.label)}
+              onMouseLeave={() => setHoveredPerson((cur) => (cur === person.label ? null : cur))}
+            >
 
-              {/* Row 1 — name + actions (Edit / Timeline / Delete / expand) */}
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+              {/* Row 1 — name + actions. Clicking this header row toggles the
+                  card; clicks inside the expanded body (photos, tree) are not
+                  hijacked. Action buttons stopPropagation so they don't expand. */}
+              <div
+                onClick={() => setExpandedPerson((p) => ({ ...p, [person.label]: !isExpanded }))}
+                style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap", cursor: "pointer" }}
+              >
                 <div style={{
                   fontSize: 14, fontWeight: 700,
                   color: "var(--lm-amber)",
@@ -656,45 +669,65 @@ export function FaceOwnersSection() {
                 {/* Actions: Delete / Edit / Timeline / expand toggle.
                     Edit is hidden for the special "unknown" bucket since it
                     isn't a real user that can be renamed. */}
-                {person.label !== "unknown" && (
-                  <button
-                    onClick={() => handleRename(person.label)}
-                    title="Rename"
-                    aria-label="Rename"
-                    style={iconBtnStyle}
-                  ><Pencil size={14} /></button>
-                )}
-                <button
-                  onClick={() => setTimelineUser(person.label)}
-                  title="Timeline"
-                  aria-label="Timeline"
-                  style={{
-                    ...iconBtnStyle,
-                    background: "color-mix(in srgb, var(--lm-blue) 15%, transparent)",
-                    color: "var(--lm-blue)",
-                    border: "1px solid color-mix(in srgb, var(--lm-blue) 30%, transparent)",
-                  }}
-                ><History size={14} /></button>
-                <button
-                  onClick={() => handleRemove(person.label)}
-                  disabled={deleting === person.label}
-                  title="Delete user"
-                  aria-label="Delete user"
-                  style={{
-                    ...iconBtnStyle,
-                    background: "color-mix(in srgb, var(--lm-red) 12%, transparent)",
-                    color: "var(--lm-red)",
-                    border: "1px solid color-mix(in srgb, var(--lm-red) 35%, transparent)",
-                    cursor: deleting === person.label ? "not-allowed" : "pointer",
-                    opacity: deleting === person.label ? 0.5 : 1,
-                  }}
-                >{deleting === person.label ? "…" : <Trash2 size={14} />}</button>
-                <button
-                  onClick={() => setExpandedPerson((p) => ({ ...p, [person.label]: !isExpanded }))}
-                  title={isExpanded ? "Collapse" : "Expand details"}
-                  aria-label={isExpanded ? "Collapse" : "Expand"}
-                  style={iconBtnStyle}
-                >{isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</button>
+                {(() => {
+                  const isHovered = hoveredPerson === person.label;
+                  // Keep hovered buttons fully visible; fade out (but keep
+                  // interactive) when not hovered so the row stays the same
+                  // height — avoids layout shift.
+                  const hoverStyle: React.CSSProperties = {
+                    opacity: isHovered ? 1 : 0,
+                    pointerEvents: isHovered ? "auto" : "none",
+                    transition: "opacity 0.15s ease",
+                  };
+                  return (
+                    <>
+                      {person.label !== "unknown" && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleRename(person.label); }}
+                          title="Rename"
+                          aria-label="Rename"
+                          style={{ ...iconBtnStyle, ...hoverStyle }}
+                        ><Pencil size={14} /></button>
+                      )}
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setTimelineUser(person.label); }}
+                        title="Timeline"
+                        aria-label="Timeline"
+                        style={{
+                          ...iconBtnStyle,
+                          background: "color-mix(in srgb, var(--lm-blue) 15%, transparent)",
+                          color: "var(--lm-blue)",
+                          border: "1px solid color-mix(in srgb, var(--lm-blue) 30%, transparent)",
+                          ...hoverStyle,
+                        }}
+                      ><History size={14} /></button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleRemove(person.label); }}
+                        disabled={deleting === person.label}
+                        title="Delete user"
+                        aria-label="Delete user"
+                        style={{
+                          ...iconBtnStyle,
+                          background: "color-mix(in srgb, var(--lm-red) 12%, transparent)",
+                          color: "var(--lm-red)",
+                          border: "1px solid color-mix(in srgb, var(--lm-red) 35%, transparent)",
+                          cursor: deleting === person.label ? "not-allowed" : "pointer",
+                          opacity: deleting === person.label ? 0.5 : (isHovered ? 1 : 0),
+                          pointerEvents: isHovered ? "auto" : "none",
+                          transition: "opacity 0.15s ease",
+                        }}
+                      >{deleting === person.label ? "…" : <Trash2 size={14} />}</button>
+                      {/* Inline chevron indicator — non-interactive, just a visual
+                          hint that the card is clickable to expand. Always visible. */}
+                      <span style={{
+                        display: "inline-flex", alignItems: "center", justifyContent: "center",
+                        width: 18, height: 18, color: "var(--lm-text-muted)",
+                      }}>
+                        {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                      </span>
+                    </>
+                  );
+                })()}
               </div>
 
               {(person.telegram_username || person.telegram_id) && (
