@@ -48,7 +48,7 @@ User mentions daily activity in conversation → Lumi silently logs to wellbeing
 
 ## Pattern Building (Flow A)
 
-The habit skill reads 7–14 days of wellbeing JSONL and computes patterns:
+The habit skill reads 14–30 days of wellbeing JSONL and computes patterns (pattern emission still gates on `days_observed ≥ 3`, so day-4 users get early signals — the wider window deepens accuracy as data accumulates):
 
 1. **Group** events by `(action, hour)` across all days
 2. **Count** frequency: `days_appeared / days_observed`

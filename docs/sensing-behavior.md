@@ -232,7 +232,7 @@ Wellbeing is **event-driven**. There are NO wellbeing cron jobs. On every `motio
 
 *Presence dedup (at-log safety net).* `lumi/lib/wellbeing/wellbeing.go::LogForUser` scans the user's JSONL bottom-up for the most recent **presence** row (enter/leave, ignoring activity rows in between). `enter` while the last presence is already `enter` is dropped; `leave` with no matching open session is dropped. Since LeLamp already emits one enter per real session (per-friend + collapsed-unknown), this runs as a safety net for restarts or out-of-order edge cases rather than load-bearing dedup.
 
-**Retention:** 7 days on the Lumi side. A goroutine started by `wellbeing.Init()` sweeps files older than the cutoff daily.
+**Retention:** 30 days on the Lumi side. A goroutine started by `wellbeing.Init()` sweeps files older than the cutoff daily.
 
 ### On `motion.activity` — what the agent does
 
@@ -372,7 +372,7 @@ By default, channel-origin turns (Telegram, webchat) suppress speaker TTS becaus
 
 ### Per-user mood history
 
-Mood history tracks the **user's emotional state** only — not system events or lamp emotions. Stored per-user at `/root/local/users/{name}/mood/YYYY-MM-DD.jsonl` (7-day retention). Mood is logged by the agent via the Mood skill when it detects emotional actions (camera) or infers mood from conversation.
+Mood history tracks the **user's emotional state** only — not system events or lamp emotions. Stored per-user at `/root/local/users/{name}/mood/YYYY-MM-DD.jsonl` (30-day retention). Mood is logged by the agent via the Mood skill when it detects emotional actions (camera) or infers mood from conversation.
 
 #### Mood sources
 

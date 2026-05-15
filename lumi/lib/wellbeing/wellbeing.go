@@ -38,7 +38,7 @@ const (
 	fileSuffix       = ".jsonl"
 	DefaultUser      = "unknown"
 	maxNormalizedLen = 64
-	retentionDays    = 7
+	retentionDays    = 30
 )
 
 var reNonLabel = regexp.MustCompile(`[^a-z0-9_-]+`)

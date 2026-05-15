@@ -55,7 +55,7 @@ const (
 	usersDir      = "/root/local/users"
 	moodSubdir    = "mood"
 	fileSuffix    = ".jsonl"
-	retentionDays = 7
+	retentionDays = 30
 	DefaultUser   = "unknown"
 )
 

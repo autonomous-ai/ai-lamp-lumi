@@ -232,7 +232,7 @@ Wellbeing hoạt động **event-driven**. **KHÔNG còn cron wellbeing** nào. 
 
 *Presence dedup (safety net tại log).* `lumi/lib/wellbeing/wellbeing.go::LogForUser` scan file JSONL của user từ dưới lên để tìm **presence row** gần nhất (enter/leave, bỏ qua activity rows xen giữa). `enter` khi presence cuối đã là `enter` → drop; `leave` khi chưa có session mở → drop. Vì LeLamp đã fire 1 enter / 1 session thật (per-friend + unknown gộp), layer này chỉ là safety net cho restart / out-of-order edge case, không load-bearing.
 
-**Retention:** 7 ngày. Goroutine trong `wellbeing.Init()` xoá file cũ hàng ngày.
+**Retention:** 30 ngày. Goroutine trong `wellbeing.Init()` xoá file cũ hàng ngày.
 
 ### Khi nhận `motion.activity` — agent làm gì
 
@@ -375,7 +375,7 @@ Mặc định turn channel-origin (Telegram, webchat) suppress TTS loa vì reply
 
 ### Mood history per-user
 
-Mood history lưu per-user tại `/root/local/users/{name}/mood/YYYY-MM-DD.jsonl` (7 ngày retention). Hệ thống tracking ai đang ngồi qua `presence.enter` (face recognition) và log mood events vào thư mục user đó.
+Mood history lưu per-user tại `/root/local/users/{name}/mood/YYYY-MM-DD.jsonl` (30 ngày retention). Hệ thống tracking ai đang ngồi qua `presence.enter` (face recognition) và log mood events vào thư mục user đó.
 
 #### Nguồn mood
 
