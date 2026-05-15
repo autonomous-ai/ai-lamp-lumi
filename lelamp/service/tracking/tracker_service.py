@@ -222,8 +222,11 @@ GIMBAL_MAX_STEP = 3.0
 ADAPTIVE_GAIN_PX = 60
 ADAPTIVE_GAIN_MULT = 1.0
 
-# Dead zone in pixels.
-DEAD_ZONE_PX = 40
+# Per-axis dead zones as fraction of frame.
+# Yaw larger (5%) — horizontal jitter is common, small dx not worth a motor move.
+# Pitch smaller (3%) — vertical needs finer response for elbow tracking.
+DEAD_ZONE_YAW_PCT   = 0.07
+DEAD_ZONE_PITCH_PCT = 0.05
 
 # EMA smoothing on pixel offset before servo command (0-1).
 # Lower = smoother (less jitter) but slower response.
@@ -1054,7 +1057,7 @@ class TrackerService:
 
                 # --- PID continuous-fire with detector-gated trust ---
                 now_t = time.perf_counter()
-                in_zone = abs(dx) <= DEAD_ZONE_PX and abs(dy) <= DEAD_ZONE_PX
+                in_zone = abs(dx) <= w_fr * DEAD_ZONE_YAW_PCT and abs(dy) <= h_fr * DEAD_ZONE_PITCH_PCT
                 yolo_age = now_t - last_yolo_confirm_t
                 # Ghost-lock recovery: ViT/CSRT sometimes reports ok=True with a
                 # bbox larger than the frame (lock dissolved into background).
@@ -1087,10 +1090,12 @@ class TrackerService:
                     # Yaw sign: dx>0 (object on right) → base_yaw must INCREASE
                     # to chase right (verified empirically vs legacy _fire_gimbal,
                     # log shows camera moving the wrong way when this was negated).
-                    yaw_step = self._yaw_pid.update(dx)
-                    pitch_correction = self._pitch_pid.update(dy)
-                    logger.info("[pid-fire] offset=(%.0f,%.0f) → yaw=%.2f pitch=%.2f target='%s'",
-                                dx, dy, yaw_step, pitch_correction, state.target_label)
+                    yaw_step = self._yaw_pid.update(dx) if abs(dx) > w_fr * DEAD_ZONE_YAW_PCT else 0.0
+                    pitch_correction = self._pitch_pid.update(dy) if abs(dy) > h_fr * DEAD_ZONE_PITCH_PCT else 0.0
+                    logger.info("[pid-fire] offset=(%.0f,%.0f) → %.0f%%x/%.0f%%y yaw=%.2f pitch=%.2f target='%s'",
+                                dx, dy,
+                                abs(dx) / w_fr * 100, abs(dy) / h_fr * 100,
+                                yaw_step, pitch_correction, state.target_label)
                     t_servo_ms = self._fire_pid(yaw_step, pitch_correction, animation_service)
                     t_servo_acc += t_servo_ms
                     servo_count += 1
@@ -1149,11 +1154,6 @@ class TrackerService:
                     else:
                         yolo_miss_count += 1
                         logger.debug("YOLO scan: target not found (%d consecutive)", yolo_miss_count)
-                        if yolo_miss_count >= 5:
-                            logger.warning("YOLO missed %d times in a row — ghost tracking", yolo_miss_count)
-                            if _do_retry():
-                                continue
-                            break
                 except queue.Empty:
                     pass
                 else:
