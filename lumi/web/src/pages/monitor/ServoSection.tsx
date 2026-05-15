@@ -196,42 +196,44 @@ export function ServoSection() {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
 
-      {/* Per-servo status (full width — list can be long) */}
-      <div style={S.card}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={S.cardLabel}>Servos</div>
-            <span style={{
-              fontSize: 10, padding: "2px 7px", borderRadius: 4,
-              background: `${headerColor}22`, color: headerColor,
-              border: `1px solid ${headerColor}55`,
-              fontWeight: 700, letterSpacing: "0.05em",
-            }}>
-              {onlineCount}/{totalCount} ONLINE
-            </span>
+      {/* Row 1: Servos status + Aim + Motor Control + Animations — all 4 cards side-by-side */}
+      <div className="lm-grid-4">
+
+        {/* Servos status — list collapses to a single column inside the 1/4 width slot */}
+        <div style={S.card}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, gap: 6 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+              <div style={S.cardLabel}>Servos</div>
+              <span style={{
+                fontSize: 10, padding: "2px 7px", borderRadius: 4,
+                background: `${headerColor}22`, color: headerColor,
+                border: `1px solid ${headerColor}55`,
+                fontWeight: 700, letterSpacing: "0.05em",
+                flexShrink: 0,
+              }}>
+                {onlineCount}/{totalCount}
+              </span>
+            </div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: "var(--lm-amber)", textAlign: "right", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {servo?.current || "idle"}
+            </div>
           </div>
-          <div style={{ fontSize: 13, fontWeight: 600, color: "var(--lm-amber)" }}>
-            {servo?.current || "idle"}
-          </div>
+          {servos ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {Object.entries(servos).sort(([,a], [,b]) => a.id - b.id).map(([joint, info]) => (
+                <ServoCard key={joint} joint={joint} info={info} />
+              ))}
+            </div>
+          ) : (
+            <div style={{ fontSize: 12, color: "var(--lm-text-muted)" }}>Loading…</div>
+          )}
         </div>
-        {servos ? (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 10 }}>
-            {Object.entries(servos).sort(([,a], [,b]) => a.id - b.id).map(([joint, info]) => (
-              <ServoCard key={joint} joint={joint} info={info} />
-            ))}
-          </div>
-        ) : (
-          <div style={{ fontSize: 12, color: "var(--lm-text-muted)" }}>Loading…</div>
-        )}
-      </div>
 
-      {/* Row 2: Aim + Motor Control side-by-side */}
-      <div className="lm-grid-2">
-
+        {/* Aim Direction */}
         <div style={{ ...S.card, alignSelf: "start" }}>
           <div style={S.cardLabel}>Aim Direction</div>
           <div style={{ fontSize: 11, color: "var(--lm-text-muted)", marginBottom: 10 }}>
-            Move head to a preset direction (2s).
+            Move head to a preset (2s).
           </div>
           {aims.length > 0 ? (
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
@@ -242,17 +244,61 @@ export function ServoSection() {
           ) : <span style={{ fontSize: 11, color: "var(--lm-text-muted)" }}>No directions configured</span>}
         </div>
 
+        {/* Motor Control — 2-col grid keeps button column at uniform width so all
+            4 buttons line up vertically, regardless of label length. */}
         <div style={{ ...S.card, alignSelf: "start" }}>
           <div style={S.cardLabel}>Motor Control</div>
           <div style={{ fontSize: 11, color: "var(--lm-text-muted)", marginBottom: 10 }}>
-            Emergency overrides — bypass normal animation pipeline.
+            Emergency overrides.
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-            <ControlButton onClick={zeroServos} color="var(--lm-teal)"   title="Zero (0°)"   hint="Hold at 0°; blocks all play calls" />
-            <ControlButton onClick={holdServos} color="var(--lm-amber)"  title="Hold"        hint="Freeze pose; emotions still play" />
-            <ControlButton onClick={resumeServos} color="var(--lm-indigo, #6366f1)" title="Resume" hint="Exit hold, restart idle" />
-            <ControlButton onClick={release}    color="var(--lm-red)"    title="Release"     hint="Disable torque; move by hand" />
+          <div style={{
+            display: "grid",
+            gridTemplateColumns: "minmax(96px, max-content) 1fr",
+            rowGap: 8, columnGap: 10,
+            alignItems: "center",
+          }}>
+            <ControlButton onClick={zeroServos}   color="var(--lm-teal)"             title="Zero (0°)" hint="Hold at 0°; blocks play calls" />
+            <ControlButton onClick={holdServos}   color="var(--lm-amber)"            title="Hold"      hint="Freeze pose; emotions still play" />
+            <ControlButton onClick={resumeServos} color="var(--lm-indigo, #6366f1)"  title="Resume"    hint="Exit hold, restart idle" />
+            <ControlButton onClick={release}      color="var(--lm-red)"              title="Release"   hint="Disable torque; move by hand" />
           </div>
+        </div>
+
+        {/* Animations: chips wrap inside the column; upload button moves to its own row */}
+        <div style={{ ...S.card, alignSelf: "start" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, gap: 6 }}>
+            <div style={S.cardLabel}>Animations</div>
+            <input
+              type="file"
+              accept=".csv,text/csv"
+              style={{ display: "none" }}
+              ref={fileInputRef}
+              onChange={(e) => uploadCsv(e.target.files?.[0] ?? null)}
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+              title="Upload CSV — file name becomes recording name"
+              style={{
+                fontSize: 10, padding: "3px 8px", borderRadius: 5, fontWeight: 600,
+                background: "var(--lm-surface)", border: "1px solid var(--lm-border)",
+                color: uploading ? "var(--lm-text-muted)" : "var(--lm-amber)",
+                cursor: uploading ? "not-allowed" : "pointer",
+                flexShrink: 0,
+              }}
+            >
+              {uploading ? "…" : "↑ CSV"}
+            </button>
+          </div>
+          {(servo?.available_recordings ?? []).length > 0 ? (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {(servo?.available_recordings ?? []).map((anim) => (
+                <ChipButton key={anim} active={anim === servo?.current} onClick={() => playAnim(anim)}>
+                  {anim}
+                </ChipButton>
+              ))}
+            </div>
+          ) : <span style={{ fontSize: 11, color: "var(--lm-text-muted)" }}>No recordings available</span>}
         </div>
       </div>
 
@@ -318,46 +364,6 @@ export function ServoSection() {
             ))}
           </div>
         ) : <span style={{ fontSize: 11, color: "var(--lm-text-muted)" }}>Loading joints…</span>}
-      </div>
-
-      {/* Animations: presets + upload action separated so neither competes for attention. */}
-      <div style={S.card}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, gap: 10, flexWrap: "wrap" }}>
-          <div style={S.cardLabel}>Animations</div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <input
-              type="file"
-              accept=".csv,text/csv"
-              style={{ display: "none" }}
-              ref={fileInputRef}
-              onChange={(e) => uploadCsv(e.target.files?.[0] ?? null)}
-            />
-            <span style={{ fontSize: 10, color: "var(--lm-text-muted)" }}>
-              file name = recording name
-            </span>
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              disabled={uploading}
-              style={{
-                fontSize: 11, padding: "5px 14px", borderRadius: 6, fontWeight: 600,
-                background: "var(--lm-surface)", border: "1px solid var(--lm-border)",
-                color: uploading ? "var(--lm-text-muted)" : "var(--lm-amber)",
-                cursor: uploading ? "not-allowed" : "pointer",
-              }}
-            >
-              {uploading ? "Uploading…" : "↑ Upload CSV"}
-            </button>
-          </div>
-        </div>
-        {(servo?.available_recordings ?? []).length > 0 ? (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-            {(servo?.available_recordings ?? []).map((anim) => (
-              <ChipButton key={anim} active={anim === servo?.current} onClick={() => playAnim(anim)}>
-                {anim}
-              </ChipButton>
-            ))}
-          </div>
-        ) : <span style={{ fontSize: 11, color: "var(--lm-text-muted)" }}>No recordings available</span>}
       </div>
 
       {/* Toast — pinned bottom-right so action feedback doesn't shift the page. */}
@@ -499,7 +505,8 @@ function ChipButton({ children, onClick, active }: {
   );
 }
 
-// ControlButton: emergency motor action with caption underneath.
+// ControlButton: rendered as two grid cells (button + hint) so a parent
+// 2-column grid can keep all buttons vertically aligned regardless of label.
 function ControlButton({ onClick, color, title, hint }: {
   onClick: () => void;
   color: string;
@@ -507,13 +514,14 @@ function ControlButton({ onClick, color, title, hint }: {
   hint: string;
 }) {
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+    <>
       <button onClick={onClick} style={{
-        fontSize: 12, padding: "7px 0", borderRadius: 6, width: "100%",
+        fontSize: 12, padding: "7px 12px", borderRadius: 6, width: "100%",
         background: `${color}14`, border: `1px solid ${color}55`,
         color, cursor: "pointer", fontWeight: 600,
+        whiteSpace: "nowrap",
       }}>{title}</button>
-      <span style={{ fontSize: 10, color: "var(--lm-text-muted)", lineHeight: 1.4 }}>{hint}</span>
-    </div>
+      <span style={{ fontSize: 10, color: "var(--lm-text-muted)", lineHeight: 1.35 }}>{hint}</span>
+    </>
   );
 }
