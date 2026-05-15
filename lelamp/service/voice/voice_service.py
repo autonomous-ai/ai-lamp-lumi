@@ -474,6 +474,193 @@ class VoiceService:
         """Check if music is currently playing."""
         return self._music is not None and self._music.playing
 
+    @staticmethod
+    def _should_request_speaker_enroll(
+        transcript: str,
+        duration_s: float = 0.0,
+        min_words: int = 10,
+        min_duration_s: float = 2.0,
+    ) -> bool:
+        """Whether unknown-speaker message should include a strong enroll nudge."""
+        return len(transcript.split()) >= min_words and duration_s >= min_duration_s
+
+    def _format_unknown_speaker_message(
+        self,
+        transcript: str,
+        audio_path: str,
+        duration_s: float = 0.0,
+        voiceprint_hash: Optional[str] = None,
+    ) -> str:
+        """Format Lumi message for an unrecognized speaker (enroll hints, cooldown)."""
+        now = time.time()
+        in_cooldown = False
+        if voiceprint_hash:
+            last = self._last_nudge_time.get(voiceprint_hash, 0.0)
+            if now - last < self._nudge_cooldown_s:
+                in_cooldown = True
+                logger.info(
+                    "Enroll nudge skipped for %s — asked %.0fs ago "
+                    "(cooldown %.0fs); path + tag still surfaced",
+                    voiceprint_hash, now - last, self._nudge_cooldown_s,
+                )
+
+        hash_tag = f" [voice:{voiceprint_hash}]" if voiceprint_hash else ""
+        audio_hint = f" (audio saved at {audio_path})" if audio_path else ""
+
+        if in_cooldown:
+            return f"Unknown Speaker:{hash_tag} {transcript}{audio_hint}"
+
+        if audio_path and self._should_request_speaker_enroll(transcript, duration_s):
+            if voiceprint_hash:
+                self._last_nudge_time[voiceprint_hash] = now
+            return (
+                f"Unknown Speaker:{hash_tag} {transcript} "
+                f"(audio save at {audio_path}, auto enroll this speaker "
+                f"if having speaker name in transcript, else ask user's name)"
+            )
+
+        return (
+            f"Unknown Speaker:{hash_tag} {transcript} "
+            f"(audio saved at {audio_path}. Note: audio is too short for "
+            f"single enrollment. If prior turns tagged the same {voiceprint_hash or 'voice cluster'}, "
+            f"combine their saved paths with this one when enrolling; "
+            f"otherwise ask the user to introduce themselves longer.)"
+        )
+
+    def _session_wav_for_ser(
+        self, audio_buffer: list[bytes],
+    ) -> Optional[tuple[bytes, float]]:
+        """Build mono 16 kHz WAV + duration from the STT session buffer (for SER)."""
+        if not audio_buffer:
+            return None
+        duration_s = sum(len(b) for b in audio_buffer) / (STT_RATE * 2)
+        if duration_s < SPEAKER_MIN_AUDIO_S:
+            return None
+        try:
+            from lelamp.service.voice.speaker_recognizer.speaker_recognizer import (
+                pcm16_bytes_to_wav,
+            )
+        except Exception as e:
+            logger.warning("Session WAV for SER skipped — helper import failed: %s", e)
+            return None
+        try:
+            return pcm16_bytes_to_wav(b"".join(audio_buffer), STT_RATE), duration_s
+        except Exception as e:
+            logger.warning("Session WAV for SER failed: %s", e)
+            return None
+
+    def _submit_speech_emotion_after_speaker(
+        self,
+        wav_bytes: bytes,
+        duration_s: float,
+        user: str,
+    ) -> None:
+        """Enqueue session WAV for SER (called from the main post-STT flow, not speaker decorate)."""
+        if self._speech_emotion is None or not self._speech_emotion.available:
+            logger.info(
+                "Speech emotion submit skipped: service_init=%s available=%s",
+                self._speech_emotion is not None,
+                bool(self._speech_emotion and self._speech_emotion.available),
+            )
+            return
+        logger.info(
+            "Speech emotion submit: user=%r duration=%.2fs wav=%d bytes",
+            user, duration_s, len(wav_bytes),
+        )
+        try:
+            self._speech_emotion.submit(
+                user=user, wav_bytes=wav_bytes, duration_s=duration_s,
+            )
+        except Exception as e:
+            logger.warning("Speech emotion submit failed: %s", e)
+
+    def _identify_and_decorate(
+        self, transcript: str, audio_buffer: list[bytes],
+    ) -> tuple[str, Optional[str]]:
+        """Run speaker recognition; return (Lumi message, SER user name or None).
+
+        ``user_name`` is set only when speaker recognize completes without
+        ``error`` — known label or ``unknown`` for no match. ``None`` skips SER.
+        """
+        logger.info("Identify and decorate transcript: raw transcript is: '%s'", transcript)
+        if self._speaker is None:
+            logger.info(
+                "Skip speaker ID: recognizer not initialized "
+                "(LELAMP_SPEAKER_RECOGNITION_ENABLED or init failure)"
+            )
+            return transcript, None
+        if not audio_buffer:
+            logger.warning("Skip speaker ID: audio buffer is empty (no frames captured this session)")
+            return transcript, None
+        try:
+            from lelamp.service.voice.speech_emotion.constants import UNKNOWN_USER_LABEL
+            from lelamp.service.voice.speaker_recognizer.speaker_recognizer import (
+                pcm16_bytes_to_wav,
+            )
+        except Exception as e:
+            logger.warning("Skip speaker ID: helper import failed: %s", e)
+            return transcript, None
+
+        total_bytes = sum(len(b) for b in audio_buffer)
+        duration_s = total_bytes / (STT_RATE * 2)  # int16 mono
+        if duration_s < SPEAKER_MIN_AUDIO_S:
+            logger.info(
+                "Skip speaker ID: only %.2fs of audio buffered (<%.2fs)",
+                duration_s, SPEAKER_MIN_AUDIO_S,
+            )
+            return transcript, None
+
+        try:
+            wav_bytes = pcm16_bytes_to_wav(b"".join(audio_buffer), STT_RATE)
+            import base64 as _b64
+            audio_b64 = _b64.b64encode(wav_bytes).decode("ascii")
+            result = self._speaker.recognize(audio_b64, source_type="base64")
+        except Exception as e:
+            logger.warning("Speaker recognize failed: %s", e)
+            return transcript, None
+
+        logger.info("Speaker recognize result: %r", result)
+        err = result.get("error")
+        audio_path = result.get("unknown_audio_path", "")
+        vp_hash = result.get("voiceprint_hash")
+        if err:
+            logger.warning("Speaker ID skipped — embedding server issue: %s", err)
+            if audio_path:
+                return self._format_unknown_speaker_message(
+                    transcript, audio_path, duration_s, vp_hash,
+                ), None
+            return transcript, None
+
+        name = result.get("name", "unknown")
+        confidence = result.get("confidence", 0.0)
+        if result.get("match") and name and name != "unknown":
+            display = result.get("display_name") or name.capitalize()
+            logger.info(
+                "Speaker ID: %s (confidence=%.2f, audio=%s)",
+                name, confidence, audio_path or "-",
+            )
+            return f"Speaker - {display}: {transcript}", name
+
+        logger.info(
+            "Speaker ID: unknown (best=%.2f, audio=%s, hash=%s)",
+            confidence, audio_path or "-", vp_hash or "-",
+        )
+        return self._format_unknown_speaker_message(
+            transcript, audio_path, duration_s, vp_hash,
+        ), UNKNOWN_USER_LABEL
+
+    def _finalize_voice_turn(self, transcript: str, audio_buffer: list[bytes]) -> str:
+        """Speaker decorate → optional SER submit → return message for Lumi."""
+        final_msg, se_user = self._identify_and_decorate(transcript, audio_buffer)
+        if se_user is None:
+            from lelamp.service.voice.speech_emotion.constants import UNKNOWN_USER_LABEL
+            se_user = UNKNOWN_USER_LABEL
+        session_audio = self._session_wav_for_ser(audio_buffer)
+        if session_audio is not None:
+            wav_bytes, duration_s = session_audio
+            self._submit_speech_emotion_after_speaker(wav_bytes, duration_s, se_user)
+        return final_msg
+
     def _wait_for_tts(self):
         """Block until TTS finishes speaking, then wait for reverb to decay (adaptive RMS gate)."""
         if not self._tts_is_speaking():
@@ -682,166 +869,6 @@ class VoiceService:
             pre_frames_from_vad, device_rate,
         )
 
-        def _should_request_enroll(
-            transcript: str, duration_s: float = 0.0,
-            min_words: int = 10, min_duration_s: float = 2.0,
-        ) -> bool:
-            """Decide whether to append enroll instructions to the message.
-
-            Requires BOTH sufficient words and audio duration.
-            Short utterances don't carry enough audio for reliable enrollment
-            and cause the agent to repeatedly ask "who are you?" which is annoying.
-            """
-            return len(transcript.split()) >= min_words and duration_s >= min_duration_s
-
-        def _format_unknown_speaker(
-            transcript: str, audio_path: str, duration_s: float = 0.0,
-            voiceprint_hash: Optional[str] = None,
-        ) -> str:
-            """Format message for an unrecognized speaker.
-
-            Always carries the ``[voice:N]`` tag and audio path when available
-            — the LLM still needs both during cooldown so the user can
-            self-enroll mid-sentence ("my name is X, please remember my
-            voice"). Cooldown only suppresses the strong "ask user's name"
-            instruction so the agent doesn't keep prompting the same unknown
-            cluster every turn; the data needed to enroll on demand stays
-            visible.
-            """
-            now = time.time()
-            in_cooldown = False
-            if voiceprint_hash:
-                last = self._last_nudge_time.get(voiceprint_hash, 0.0)
-                if now - last < self._nudge_cooldown_s:
-                    in_cooldown = True
-                    logger.info(
-                        "Enroll nudge skipped for %s — asked %.0fs ago "
-                        "(cooldown %.0fs); path + tag still surfaced",
-                        voiceprint_hash, now - last, self._nudge_cooldown_s,
-                    )
-
-            # Always surface cluster tag when we have one — multi-turn combine
-            # depends on it persisting across cooldown.
-            hash_tag = f" [voice:{voiceprint_hash}]" if voiceprint_hash else ""
-            audio_hint = f" (audio saved at {audio_path})" if audio_path else ""
-
-            # Cooldown branch — give LLM the data, drop the strong instruction.
-            # User volunteering a name in this turn is still actionable from
-            # transcript content + audio_path; we just stop nagging the agent
-            # to ask.
-            if in_cooldown:
-                return f"Unknown Speaker:{hash_tag} {transcript}{audio_hint}"
-
-            # Branch B — audio is long enough for a confident enrollment.
-            if audio_path and _should_request_enroll(transcript, duration_s):
-                if voiceprint_hash:
-                    self._last_nudge_time[voiceprint_hash] = now
-                return (
-                    f"Unknown Speaker:{hash_tag} {transcript} "
-                    f"(audio save at {audio_path}, auto enroll this speaker "
-                    f"if having speaker name in transcript, else ask user's name)"
-                )
-
-            # Branch C — too short for a one-shot enroll; hint multi-turn combine.
-            return (
-                f"Unknown Speaker:{hash_tag} {transcript} "
-                f"(audio saved at {audio_path}. Note: audio is too short for "
-                f"single enrollment. If prior turns tagged the same {voiceprint_hash or 'voice cluster'}, "
-                f"combine their saved paths with this one when enrolling; "
-                f"otherwise ask the user to introduce themselves longer.)"
-            )
-
-        def _identify_and_decorate(transcript: str) -> str:
-            """Prefix transcript with ``<Name>: `` from speaker recognition.
-
-            For unknown speakers, also append ``(audio save at <path>)`` so the
-            LLM skill can pick the path up and enroll the voice later. When
-            the pipeline is skipped for any reason, we log why at INFO level
-            so the transcript → Lumi flow is easy to trace end-to-end.
-            """
-            logger.info("Identify and decorate transcript: raw transcript is: '%s'", transcript)
-            if self._speaker is None:
-                logger.info("Skip speaker ID: recognizer not initialized (LELAMP_SPEAKER_RECOGNITION_ENABLED or init failure)")
-                return transcript
-            if not audio_buffer:
-                logger.warning("Skip speaker ID: audio buffer is empty (no frames captured this session)")
-                return transcript
-            try:
-                from lelamp.service.voice.speaker_recognizer.speaker_recognizer import (
-                    pcm16_bytes_to_wav,
-                )
-            except Exception as e:
-                logger.warning("Skip speaker ID: helper import failed: %s", e)
-                return transcript
-
-            total_bytes = sum(len(b) for b in audio_buffer)
-            duration_s = total_bytes / (STT_RATE * 2)  # int16 mono
-            if duration_s < SPEAKER_MIN_AUDIO_S:
-                logger.info(
-                    "Skip speaker ID: only %.2fs of audio buffered (<%.2fs)",
-                    duration_s, SPEAKER_MIN_AUDIO_S,
-                )
-                return transcript
-
-            try:
-                wav_bytes = pcm16_bytes_to_wav(b"".join(audio_buffer), STT_RATE)
-                import base64 as _b64
-                audio_b64 = _b64.b64encode(wav_bytes).decode("ascii")
-                result = self._speaker.recognize(audio_b64, source_type="base64")
-            except Exception as e:
-                logger.warning("Speaker recognize failed: %s", e)
-                return transcript
-
-            logger.info("Speaker recognize result: %r", result)
-            err = result.get("error")
-            audio_path = result.get("unknown_audio_path", "")
-            vp_hash = result.get("voiceprint_hash")
-            if err:
-                logger.warning("Speaker ID skipped — embedding server issue: %s", err)
-                return _format_unknown_speaker(transcript, audio_path, duration_s, vp_hash) if audio_path else transcript
-
-            name = result.get("name", "unknown")
-            confidence = result.get("confidence", 0.0)
-
-            # Hand off the SAME wav bytes used for speaker ID to the speech
-            if self._speech_emotion is not None and self._speech_emotion.available:
-                from lelamp.service.voice.speech_emotion.constants import (
-                    UNKNOWN_USER_LABEL,
-                )
-                if result.get("match") and name and name != "unknown":
-                    se_user = name
-                    se_origin = "known"
-                else:
-                    se_user = UNKNOWN_USER_LABEL
-                    se_origin = "unknown"
-                logger.info(
-                    "Speech emotion submit: user=%r (origin=%s) duration=%.2fs wav=%d bytes",
-                    se_user, se_origin, duration_s, len(wav_bytes),
-                )
-                try:
-                    self._speech_emotion.submit(
-                        user=se_user, wav_bytes=wav_bytes, duration_s=duration_s,
-                    )
-                except Exception as e:
-                    logger.warning("Speech emotion submit failed: %s", e)
-            else:
-                logger.info(
-                    "Speech emotion submit skipped: service_init=%s available=%s",
-                    self._speech_emotion is not None,
-                    bool(self._speech_emotion and self._speech_emotion.available),
-                )
-
-            if result.get("match") and name and name != "unknown":
-                # Prefer the display_name field (preserves original casing like
-                # "McDonald" or "chloe_92") — fallback to capitalize() of the
-                # normalized label only when the field is absent.
-                display = result.get("display_name") or name.capitalize()
-                logger.info("Speaker ID: %s (confidence=%.2f, audio=%s)", name, confidence, audio_path or "-")
-                return f"Speaker - {display}: {transcript}"
-
-            logger.info("Speaker ID: unknown (best=%.2f, audio=%s, hash=%s)", confidence, audio_path or "-", vp_hash or "-")
-            return _format_unknown_speaker(transcript, audio_path, duration_s, vp_hash)
-
         def _send_best(best: str):
             # Run speaker recognition BEFORE wake word logic so the sent
             # message preserves the prefix regardless of which branch fires.
@@ -862,11 +889,11 @@ class VoiceService:
                         cmd = cmd[len(w):].strip()
                         break
                 command_text = cmd or best
-                final_msg = _identify_and_decorate(command_text)
+                final_msg = self._finalize_voice_turn(command_text, audio_buffer)
                 logger.info("Final message → Lumi (voice_command): %r", final_msg)
                 self._send_to_lumi(final_msg, event_type="voice_command")
             else:
-                final_msg = _identify_and_decorate(best)
+                final_msg = self._finalize_voice_turn(best, audio_buffer)
                 logger.info("Final message → Lumi (voice): %r", final_msg)
                 self._send_to_lumi(final_msg, event_type="voice")
 
