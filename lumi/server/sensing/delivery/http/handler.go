@@ -27,9 +27,9 @@ import (
 	"go-lamp.autonomous.ai/lib/lelamp"
 	"go-lamp.autonomous.ai/lib/mood"
 	"go-lamp.autonomous.ai/lib/musicsuggestion"
+	"go-lamp.autonomous.ai/lib/posture"
 	"go-lamp.autonomous.ai/lib/skillcontext"
 	"go-lamp.autonomous.ai/lib/usercanon"
-	"go-lamp.autonomous.ai/lib/posture"
 	"go-lamp.autonomous.ai/lib/wellbeing"
 	"go-lamp.autonomous.ai/server/config"
 	"go-lamp.autonomous.ai/server/serializers"
@@ -52,7 +52,6 @@ type SensingEventRequest struct {
 	// mood to "unknown" even though the friend was within forget window).
 	CurrentUser string `json:"current_user,omitempty"`
 }
-
 
 // SensingHandler handles incoming sensing events from LeLamp and forwards them to the agent.
 type SensingHandler struct {
@@ -430,6 +429,12 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 				})
 			}
 		}
+		// Inject the device's configured STT/TTS locale once per passive-sensing
+		// turn. Sensor events (enter/leave/activity/emotion/pose) carry no user
+		// text, so without this tag Lumi has no language signal and SOUL.md's
+		// "reply in owner's current-turn language" rule defaults to English.
+		// Voice/web_chat above already carry user text — they don't need it.
+		msg += i18n.LangContextTag()
 	}
 
 	// Strip [snapshot: ...] markers from the outgoing LLM message. The full text
@@ -649,15 +654,16 @@ func (h *SensingHandler) GetSnapshot(c *gin.Context) {
 //
 // kind="signal" (default): raw evidence from one source. Source + Trigger required.
 // kind="decision": agent-synthesized mood. BasedOn + Reasoning recommended;
-//   Source defaults to "agent". Trigger is ignored.
+//
+//	Source defaults to "agent". Trigger is ignored.
 type MoodLogRequest struct {
-	Mood      string `json:"mood" validate:"required"`                                  // happy, sad, stressed, tired, excited, etc.
-	Kind      string `json:"kind" validate:"omitempty,oneof=signal decision"`           // signal (default) or decision
-	Source    string `json:"source"`                                                    // signal: camera|voice|telegram|conversation. Required for signals.
-	Trigger   string `json:"trigger"`                                                   // signal: action/context. Required for signals.
-	BasedOn   string `json:"based_on"`                                                  // decision only: short summary of inputs
-	Reasoning string `json:"reasoning"`                                                 // decision only: why this mood
-	User      string `json:"user"`                                                      // optional: agent passes when it knows (e.g. Telegram sender)
+	Mood      string `json:"mood" validate:"required"`                        // happy, sad, stressed, tired, excited, etc.
+	Kind      string `json:"kind" validate:"omitempty,oneof=signal decision"` // signal (default) or decision
+	Source    string `json:"source"`                                          // signal: camera|voice|telegram|conversation. Required for signals.
+	Trigger   string `json:"trigger"`                                         // signal: action/context. Required for signals.
+	BasedOn   string `json:"based_on"`                                        // decision only: short summary of inputs
+	Reasoning string `json:"reasoning"`                                       // decision only: why this mood
+	User      string `json:"user"`                                            // optional: agent passes when it knows (e.g. Telegram sender)
 }
 
 // PostMoodLog records a mood signal or decision row to the user's history.
@@ -993,8 +999,8 @@ func (h *SensingHandler) RemoveVoiceFile(c *gin.Context) {
 			resp.Body.Close()
 		}
 		c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]any{
-			"deleted":  file,
-			"profile":  "removed",
+			"deleted": file,
+			"profile": "removed",
 		}))
 		return
 	}
@@ -1010,8 +1016,8 @@ func (h *SensingHandler) RemoveVoiceFile(c *gin.Context) {
 	if err != nil {
 		slog.Warn("speaker/enroll recompute failed", "component", "voice", "error", err)
 		c.JSON(http.StatusOK, serializers.ResponseSuccess(map[string]any{
-			"deleted":  file,
-			"warning":  "embedding not recomputed: " + err.Error(),
+			"deleted": file,
+			"warning": "embedding not recomputed: " + err.Error(),
 		}))
 		return
 	}

@@ -10,7 +10,9 @@ A short, human reaction to whatever the camera just caught. Three flavors to mix
 - **Comfort** — gentle acknowledgment, no probing. ("I'm here.")
 - **Invite** — open the door without demanding a reply. ("Want to talk?")
 
-Keyed by **raw emotion** (the FER label from the event), not by `mapped_mood`. Mood-bucket logic belongs to the music branch; checkin speaks to the immediate feeling.
+Keyed by **raw emotion** (the FER or voice label from the event), not by `mapped_mood`. Mood-bucket logic belongs to the music branch; checkin speaks to the immediate feeling.
+
+Voice variants share the same row — `Fearful` → use `Fear`, `Surprised` → use `Surprise`, `Disgusted` → use `Disgust`. Same register, same phrasing inspiration.
 
 ## Example phrasing — INSPIRATION ONLY
 
@@ -42,7 +44,7 @@ The aim is variety. If the previous checkin this cooldown window was Ask, defaul
 
 ## Reply format
 
-Embed the log marker alongside `[HW:/emotion:...]` (and `[HW:/dm:...]` for known users). Replace `<emotion>` with the lowercased raw emotion label (`sad`, `fear`, `angry`, `disgust`, `happy`, `surprise`).
+Embed the log marker alongside `[HW:/emotion:...]` (and `[HW:/dm:...]` for known users). Replace `<emotion>` with the lowercased raw emotion label (`sad`, `fear` / `fearful`, `angry`, `disgust` / `disgusted`, `happy`, `surprise` / `surprised`) — keep the form lelamp shipped so the trigger string stays trace-friendly.
 
 - **Known user** (speak + DM):
   ```

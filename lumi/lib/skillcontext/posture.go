@@ -93,10 +93,14 @@ const (
 
 // postureContext is the digest the agent reads. Values are derived labels /
 // booleans only — no raw scores or counts, those live in the message text.
+// The `profile` + `progress` blocks turn the skill from a per-event reactor
+// into a coach with a longitudinal view of the user.
 type postureContext struct {
 	Current     postureCurrent  `json:"current"`
 	Session     postureSession  `json:"session"`
 	Today       postureToday    `json:"today"`
+	Profile     postureProfile  `json:"profile"`
+	Progress    postureProgress `json:"progress"`
 	PatternsNow []string        `json:"patterns_now,omitempty"`
 }
 
@@ -118,6 +122,25 @@ type postureToday struct {
 	Goal                string `json:"goal,omitempty"`          // set by morning ritual; empty otherwise
 	MorningGreetingDone bool   `json:"morning_greeting_done"`
 	EveningRecapDone    bool   `json:"evening_recap_done"`
+}
+
+// postureProfile is the rolling user profile from the last week of posture
+// alerts. Lets the agent talk about this user's *habits* — "lúc 15h hay
+// bị", "tay phải hay nặng hơn" — instead of reacting to each event in
+// isolation. Empty when the user has fewer than 5 alerts in the window.
+type postureProfile struct {
+	AlertsLast7d        int    `json:"alerts_last_7d"`              // total posture_alert rows in last 7 days
+	PeakHourThisWeek    int    `json:"peak_hour_this_week"`         // 0-23, or -1 when not enough data
+	SideBias            string `json:"side_bias"`                   // "left" | "right" | "none"  — which side scored worse more often
+	TypicalRiskBucket   string `json:"typical_risk_bucket"`         // "medium" | "high" — most common bucket this week
+}
+
+// postureProgress frames whether the user is improving or regressing without
+// quoting raw numbers. The agent uses these labels to choose tone (warm-up
+// vs concern) and to weave a "compared to yesterday" line.
+type postureProgress struct {
+	TodayVsYesterday string `json:"today_vs_yesterday"` // worse | similar | better | unknown
+	CurrentStreakMin int    `json:"current_streak_min"`  // minutes since the last alert (0 if this is the first)
 }
 
 // BuildPostureContext returns the JSON-encoded context block (without the
@@ -148,6 +171,8 @@ func BuildPostureContext(user string, ev PostureEvent) string {
 			MorningGreetingDone: postureHasActionToday(events, posture.ActionMorningRecap),
 			EveningRecapDone:    postureHasActionToday(events, posture.ActionEveningRecap),
 		},
+		Profile:  buildProfile(user, now),
+		Progress: buildProgress(user, events, now),
 		// PatternsNow: integrated with habit/patterns.json in a follow-up.
 		PatternsNow: nil,
 	}
@@ -334,4 +359,120 @@ func absInt(x int) int {
 		return -x
 	}
 	return x
+}
+
+// buildProfile aggregates the last 7 daily posture files into a rolling
+// user profile (peak hour, side bias, typical bucket). Reading 7 small
+// JSONL files at every event is cheap — the daily file caps at ~200 rows
+// and Query is sequential append.
+func buildProfile(user string, now time.Time) postureProfile {
+	weekly := posture.QueryLastDays(user, 7, 0)
+	out := postureProfile{
+		PeakHourThisWeek:  -1,
+		SideBias:          "none",
+		TypicalRiskBucket: "",
+	}
+	if len(weekly) == 0 {
+		return out
+	}
+	var (
+		hourCounts   [24]int
+		leftWorse    int
+		rightWorse   int
+		bucketCounts = map[string]int{}
+		alertCount   int
+	)
+	for _, e := range weekly {
+		if e.Action != posture.ActionAlert {
+			continue
+		}
+		alertCount++
+		hourCounts[e.Hour]++
+		switch {
+		case e.LeftScore > e.RightScore:
+			leftWorse++
+		case e.RightScore > e.LeftScore:
+			rightWorse++
+		}
+		bucketCounts[bucketLabel(e.Score)]++
+	}
+	out.AlertsLast7d = alertCount
+	if alertCount >= 5 {
+		// Peak hour
+		peak, peakCount := 0, 0
+		for h, c := range hourCounts {
+			if c > peakCount {
+				peak, peakCount = h, c
+			}
+		}
+		if peakCount > 0 {
+			out.PeakHourThisWeek = peak
+		}
+		// Side bias: only call it a bias when one side leads the other by
+		// at least 50% of the count (avoids flagging 6 vs 5 as a pattern).
+		switch {
+		case leftWorse > rightWorse*3/2 && leftWorse > 0:
+			out.SideBias = "left"
+		case rightWorse > leftWorse*3/2 && rightWorse > 0:
+			out.SideBias = "right"
+		}
+		// Typical bucket
+		var topBucket string
+		var topCount int
+		for b, c := range bucketCounts {
+			if c > topCount {
+				topBucket, topCount = b, c
+			}
+		}
+		out.TypicalRiskBucket = topBucket
+	}
+	return out
+}
+
+// buildProgress compares today's alert count to yesterday's and reports the
+// minutes since the most recent alert today.
+func buildProgress(user string, todayEvents []posture.Event, now time.Time) postureProgress {
+	out := postureProgress{TodayVsYesterday: "unknown"}
+	todayAlerts := 0
+	var lastAlertTS float64
+	for _, e := range todayEvents {
+		if e.Action == posture.ActionAlert {
+			todayAlerts++
+			if e.TS > lastAlertTS {
+				lastAlertTS = e.TS
+			}
+		}
+	}
+	yesterday := now.AddDate(0, 0, -1).Format("2006-01-02")
+	ydAlerts := 0
+	for _, e := range posture.Query(user, yesterday, 0) {
+		if e.Action == posture.ActionAlert {
+			ydAlerts++
+		}
+	}
+	if ydAlerts > 0 || todayAlerts > 0 {
+		switch {
+		case todayAlerts > ydAlerts*5/4:
+			out.TodayVsYesterday = "worse"
+		case todayAlerts*5/4 < ydAlerts:
+			out.TodayVsYesterday = "better"
+		default:
+			out.TodayVsYesterday = "similar"
+		}
+	}
+	if lastAlertTS > 0 {
+		out.CurrentStreakMin = int(now.Sub(time.Unix(int64(lastAlertTS), 0)).Minutes())
+	}
+	return out
+}
+
+func bucketLabel(score int) string {
+	switch riskBucket(score) {
+	case 3:
+		return "medium"
+	case 4:
+		return "high"
+	default:
+		return ""
+	}
 }

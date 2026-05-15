@@ -1,23 +1,30 @@
 ---
 name: user-emotion-detection
-description: Maps a detected user facial emotion (from emotion.detected events) into a mood signal logged via the Mood skill. This is about the USER's emotion (input), NOT Lumi's own expression — that's emotion/SKILL.md.
+description: Maps a detected user emotion — from facial expression (emotion.detected) OR speech (speech_emotion.detected) — into a mood signal logged via the Mood skill, then picks one response route (music / checkin / action). This is about the USER's emotion (input), NOT Lumi's own expression — that's emotion/SKILL.md.
 ---
 
 # User Emotion Detection
 
 ## Strict Trigger
 
-Runs **only** when this turn's input has `[emotion] Emotion detected: <EmotionName>`.
+Runs **only** when this turn's input has one of:
 
-For any other event (`[sensing:presence.*]`, `[activity]`, `[sensing:sound]`, `[sensing:light.*]`, …) → **STOP. No tool calls.** Don't infer emotion from older turns — every signal must come from a real `[emotion]` event in THIS turn.
+- `[emotion] Emotion detected: <EmotionName>` — facial expression from camera.
+- `[speech_emotion] Speech emotion detected: <EmotionName>` — vocal expression from microphone.
 
-> **EXECUTE, don't plan.** Before any reply (including `NO_REPLY`) you MUST embed a `[HW:/mood/log:{...}]` marker in the reply for this event (it fires the POST async via the runtime — see "What this skill produces" below). Writing *"I will post a mood signal"* in `thinking` is **not** enough — if no `[HW:/mood/log:...]` marker appears in the reply text this turn, the skill failed. Every `emotion.detected` event = at least one mood signal log. No exceptions, no skips, no "already logged recently" reasoning. (`curl` POST is the documented fallback only when the HW marker would break the body regex; do not use it as the default.)
+Both are first-class triggers and route through the same logic below. The only differences are:
+1. The mood signal `source` field — `"camera"` for `[emotion]`, `"voice"` for `[speech_emotion]`.
+2. The label vocabulary — face uses `Fear/Surprise/Disgust`, voice uses `Fearful/Surprised/Disgusted`. The mapping table below covers both; they bucket identically.
+
+For any other event (`[sensing:presence.*]`, `[activity]`, `[sensing:sound]`, `[sensing:light.*]`, …) → **STOP. No tool calls.** Don't infer emotion from older turns — every signal must come from a real `[emotion]` or `[speech_emotion]` event in THIS turn.
+
+> **EXECUTE, don't plan.** Before any reply (including `NO_REPLY`) you MUST embed a `[HW:/mood/log:{...}]` marker in the reply for this event (it fires the POST async via the runtime — see "What this skill produces" below). Writing *"I will post a mood signal"* in `thinking` is **not** enough — if no `[HW:/mood/log:...]` marker appears in the reply text this turn, the skill failed. Every `emotion.detected` / `speech_emotion.detected` event = at least one mood signal log. No exceptions, no skips, no "already logged recently" reasoning. (`curl` POST is the documented fallback only when the HW marker would break the body regex; do not use it as the default.)
 
 > **This skill is silent.** It only logs mood data — no spoken reply needed. All steps stay in `thinking`. If you want to speak, follow normal sensing reply rules. NEVER narrate mood logging, mapping, or workflow steps in the reply.
 
 ## What this skill does
 
-On every `[emotion]` event, turn the detected facial emotion into a mood signal for the user. Log it via the Mood skill, then stop.
+On every `[emotion]` or `[speech_emotion]` event, turn the detected user emotion into a mood signal. Log it via the Mood skill, then route a response (music / checkin / action) based on the pre-fetched context.
 
 This skill does NOT:
 
@@ -27,24 +34,30 @@ This skill does NOT:
 
 ## Trigger
 
-`[emotion]` event where the message looks like:
+Either of:
 
 ```
-[emotion] Emotion detected: <EmotionName>.
+[emotion] Emotion detected: <EmotionName>.            ← camera (face)
+[speech_emotion] Speech emotion detected: <EmotionName>.  ← microphone (voice)
 ```
 
-`<EmotionName>` is one of the standard FER labels: `Happy`, `Sad`, `Angry`, `Fear`, `Surprise`, `Disgust`, `Neutral`.
+Face FER labels: `Happy`, `Sad`, `Angry`, `Fear`, `Surprise`, `Disgust`, `Neutral`.
+Voice emotion2vec labels: `Happy`, `Sad`, `Angry`, `Fearful`, `Surprised`, `Disgusted`, `Neutral` (plus `Other`, `<unk>` — dropped upstream).
+
+Both formats end with the same `<EmotionName>.` anchor; the same regex parses either one.
 
 ## Emotion → mood (for the signal log)
 
-| Detected emotion | `mood` value to log |
+Both label vocabularies map to the same mood values — voice variants (`Fearful`, `Surprised`, `Disgusted`) bucket identically to their face counterparts (`Fear`, `Surprise`, `Disgust`).
+
+| Detected emotion (face OR voice) | `mood` value to log |
 |---|---|
 | `Happy` | `happy` |
 | `Sad` | `sad` |
 | `Angry` | `frustrated` |
-| `Fear` | `stressed` |
-| `Surprise` | `excited` |
-| `Disgust` | `frustrated` |
+| `Fear` / `Fearful` | `stressed` |
+| `Surprise` / `Surprised` | `excited` |
+| `Disgust` / `Disgusted` | `frustrated` |
 | `Neutral` | `normal` |
 
 ## What this skill produces
@@ -52,8 +65,14 @@ This skill does NOT:
 A single `kind=signal` row in the mood log, emitted as an HW marker at the start of your spoken reply (the runtime fires the POST async, no tool turn):
 
 ```
-[HW:/mood/log:{"kind":"signal","source":"camera","trigger":"<EmotionName lowercase>","mood":"<mapped_mood>","user":"<current_user>"}]
+[HW:/mood/log:{"kind":"signal","source":"<camera|voice>","trigger":"<EmotionName lowercase>","mood":"<mapped_mood>","user":"<current_user>"}]
 ```
+
+**`source` is decided by the event prefix on THIS turn:**
+- `[emotion]` → `"camera"`
+- `[speech_emotion]` → `"voice"`
+
+Don't override based on prior turns or the `recent_signals` block; the prefix is authoritative.
 
 `mapped_mood` comes straight from the `[emotion_context: ...]` block — do NOT look it up from the table on the fly. Every detected emotion in the mapping table gets logged (including `Neutral` → `normal`) — Mood needs the recency for decision synthesis. Use `"unknown"` when the context tag is missing.
 
@@ -97,3 +116,14 @@ Rules:
 - **Cooldown is shared** between music and checkin: both log via `music-suggestion/log` so `last_suggestion_age_min` reflects either channel.
 - Never narrate the routing decision in the spoken reply.
 - `Neutral` is filtered upstream at lelamp and never reaches this skill in practice; no special case needed here.
+
+## Voice cue is weaker than camera cue
+
+Speech emotion (`[speech_emotion]`) is noisier than facial expression on short utterances — emotion2vec flips between `sad / fearful / angry` within the same affective state. The hedge `(weak voice cue; ...; treat as uncertain, ...)` is baked into the message for that reason.
+
+Practical rules:
+
+- **Don't relax the cooldown.** Music suggestions still gate on `last_suggestion_age_min ∉ [0, 7)` regardless of source. A fresh voice signal does NOT reset the cooldown that a recent camera-driven music suggestion left.
+- **Prefer Comfort/Invite phrasing on voice-only negative reads.** When the router falls through to checkin (row #3) and the trigger is `[speech_emotion]` with `bucket=negative`, lean toward Comfort/Invite rather than Ask — probing a maybe-misclassified utterance feels worse than acknowledging it.
+- **Cross-modal reinforcement still applies.** If `recent_signals` shows the same `mapped_mood` from `source="camera"` in the last ~10 min and now voice fires the same mood, treat it as a confirmation — the Mood skill's decision synthesis already handles this; no extra logic here.
+- **No skip-on-low-confidence.** Don't read `confidence=...` out of the hedge text and pre-filter; lelamp already enforced `confidence >= SPEECH_EMOTION_CONFIDENCE_THRESHOLD` before sending. Anything that reaches this skill is worth logging.

@@ -40,10 +40,10 @@ RULA Step 1. Angle = shoulder flexion (forward) / extension (backward).
 | Sub-score | Angle range | Semantic label | Tone hint |
 |---|---|---|---|
 | 1 | −20° to 20° | neutral — don't mention | — |
-| 2 | < −20° (extension) | `upper_arm_extended` | "cánh tay ngửa ra sau" |
-| 2-3 | 20-45° flexion | `upper_arm_flexed_mild` | "khuỷu hơi nâng lên" |
-| 3-4 | 45-90° flexion | `upper_arm_flexed` | "khuỷu mở rộng / cánh tay nâng" |
-| 4+ | > 90° flexion | `upper_arm_raised` | "vai/tay đang giơ cao" |
+| 2 | < −20° (extension) | `upper_arm_extended` | "arm tilted back behind the body" |
+| 2-3 | 20-45° flexion | `upper_arm_flexed_mild` | "elbow lifted slightly" |
+| 3-4 | 45-90° flexion | `upper_arm_flexed` | "elbow out / arm raised" |
+| 4+ | > 90° flexion | `upper_arm_raised` | "shoulder / arm up high" |
 
 Adjustments folded into the score (not separately exposed): shoulder raised (+1),
 arm abducted (+1), arm supported (−1).
@@ -55,7 +55,7 @@ RULA Step 2. Angle = elbow flexion (degree between upper and lower arm).
 | Sub-score | Angle range | Semantic label | Tone hint |
 |---|---|---|---|
 | 1 | 60-100° | neutral — don't mention | — |
-| 2-3 | < 60° (too straight) OR > 100° (over-bent) | `lower_arm_strained` | "cẳng tay duỗi quá / gập quá" |
+| 2-3 | < 60° (too straight) OR > 100° (over-bent) | `lower_arm_strained` | "forearm too straight / too bent" |
 
 Score 3 typically appears when the arm is working across the midline or out to
 the side of the body.
@@ -70,7 +70,7 @@ exposed — score alone is the signal.
 | 1 | neutral — don't mention | — |
 | 2 | mild — don't mention unless dominant | — |
 | 3 | `wrist_deviated` | "cổ tay lệch / gập" |
-| 4 | `wrist_strained` | "cổ tay đang căng" |
+| 4 | `wrist_strained` | "wrist bent under strain" |
 
 ### Neck (`neck` + `neck_angle`)
 
@@ -79,10 +79,10 @@ RULA Step 9. Signed flexion angle.
 | Sub-score | Angle range | Semantic label | Tone hint |
 |---|---|---|---|
 | 1 | 0-10° | neutral — don't mention | — |
-| 2 | 10-20° flexion | `neck_flexed_mild` | "cổ hơi cúi" — usually skip |
-| 3 | > 20° flexion | `neck_flexed` | "cổ cúi" |
+| 2 | 10-20° flexion | `neck_flexed_mild` | "head dipped a bit" — usually skip |
+| 3 | > 20° flexion | `neck_flexed` | "head flexed forward" |
 | 4 | extension (negative) | `neck_extended` | "cổ ngửa ra sau" |
-| 3-4 + adjustment | twist / side-bending | `neck_twisted` | "cổ vặn / nghiêng" — only when score >=4 and angle <20° (twist not captured in angle alone) |
+| 3-4 + adjustment | twist / side-bending | `neck_twisted` | "neck rotated / tilted to side" — only when score >=4 and angle <20° (twist not captured in angle alone) |
 
 > Sub-score 4 with `angle < 20°` strongly suggests twist or side-bending rather
 > than pure flexion. Lean on twist phrasing in that case.
@@ -95,9 +95,9 @@ RULA Step 10. Forward bend angle.
 |---|---|---|---|
 | 1 | well-supported, ~0° | neutral — don't mention | — |
 | 2 | 0-20° flexion | `trunk_flexed_mild` | usually skip |
-| 3 | 20-60° flexion | `trunk_flexed` | "gập người / cúi người" |
-| 4 | > 60° flexion | `trunk_bent_low` | "gập sâu xuống" |
-| 3-4 + low angle | twisted or side bent | `trunk_twisted` | "vặn người / nghiêng người" |
+| 3 | 20-60° flexion | `trunk_flexed` | "bowed / hunched forward" |
+| 4 | > 60° flexion | `trunk_bent_low` | "deep forward bend" |
+| 3-4 + low angle | twisted or side bent | `trunk_twisted` | "torso rotated / leaning sideways" |
 
 ## Combining signals — which region to name
 
@@ -119,7 +119,7 @@ value for those.
 | `0-1` | Symmetric | Speak about posture as a whole. Don't mention sides. |
 | `>= 2` | Asymmetric | Name the side. Look at which arm-region scores differ to find what's worse. |
 
-Example: `Left wrist=2`, `Right wrist=4` → name *"cổ tay phải"*, not generic *"cổ tay"*.
+Example: `Left wrist=2`, `Right wrist=4` → say *"right wrist"*, not generic *"wrist"*.
 
 ## Skipped joints (`[skipped: ...]`)
 
@@ -134,9 +134,9 @@ When the message includes `[skipped: left_wrist, left_elbow]`:
 
 Anti-patterns that reading raw scores easily triggers — re-read these before speaking:
 
-- ❌ *"Cổ bạn cúi 35 độ."* — never quote raw angles.
-- ❌ *"Score upper_arm là 4."* — never quote sub-scores.
-- ❌ *"RULA của bạn ở mức 6."* — never name the framework.
+- ❌ *"Your neck is at 35 degrees."* — never quote raw angles.
+- ❌ *"upper_arm score is 4."* — never quote sub-scores.
+- ❌ *"Your RULA is 6."* — never name the framework.
 - ❌ *"Left=5, right=6."* — never recite the side scores.
 - ❌ Naming a region whose sub-score is < 3 — that region is OK.
 - ❌ Naming a region listed in `[skipped: ...]` — data is unreliable.
@@ -165,6 +165,6 @@ Decoder steps:
    - `lower_arm=2, trunk=2` → don't mention.
 3. **Pick top region:** neck (highest score, drives risk).
 4. **Look up `phrasing.md`** for `neck_flexed`:
-   - L4 line: *"Cổ kìa."*
-   - L5 line: *"Cổ đang cúi một lúc rồi. Ngẩng lên, mắt nhìn ngang màn hình."*
+   - L4 line: *"Neck."*
+   - L5 line: *"Neck's been flexed a while. Lift up, eyes level with the screen."*
 5. **Speak.**

@@ -8,6 +8,7 @@ import (
 
 	"go-lamp.autonomous.ai/domain"
 	"go-lamp.autonomous.ai/lib/flow"
+	"go-lamp.autonomous.ai/lib/i18n"
 	"go-lamp.autonomous.ai/lib/mood"
 	"go-lamp.autonomous.ai/lib/posture"
 	"go-lamp.autonomous.ai/lib/skillcontext"
@@ -243,10 +244,11 @@ func (s *Service) drainPendingEvents() {
 				msg += "\n[context: current_user=" + ev.currentUser + "]"
 				msg += skillcontext.BuildUserContext(ev.currentUser)
 				// See sensing handler: pre-fetch emotion pipeline reads.
-				// Same emotion_context block serves both face and voice — the
-				// emotion → mood mapping covers both label vocabularies and the
-				// router rules are identical. The `[speech_emotion]` vs
-				// `[emotion]` prefix tells the skill which source to log.
+				// Same context block serves both face and voice — the mapping
+				// covers both label vocabularies and the router rules are
+				// identical. The [speech_emotion] vs [emotion] prefix above
+				// tells the skill which source to log on the mood signal row
+				// (source=voice vs source=camera).
 				msg += skillcontext.BuildEmotionContext(skillcontext.ExtractDetectedEmotion(ev.msg), ev.currentUser)
 			case "pose.ergo_risk":
 				msg += "\n[context: current_user=" + ev.currentUser + "]"
@@ -264,6 +266,10 @@ func (s *Service) drainPendingEvents() {
 					})
 				}
 			}
+			// Mirrors the direct sensing handler — see handler.go for why
+			// sensor turns need an explicit current_language tag. Voice/
+			// web_chat branches above already carry user text and skip it.
+			msg += i18n.LangContextTag()
 		}
 		// Strip [snapshot: ...] markers from the outgoing LLM message — matches the
 		// behaviour of the direct PostEvent path (sensing handler). The full text with
