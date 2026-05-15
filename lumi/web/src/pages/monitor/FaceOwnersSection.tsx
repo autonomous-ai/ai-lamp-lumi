@@ -647,12 +647,22 @@ export function FaceOwnersSection() {
               onMouseLeave={() => setHoveredPerson((cur) => (cur === person.label ? null : cur))}
             >
 
-              {/* Row 1 — name + actions. Clicking this header row toggles the
-                  card; clicks inside the expanded body (photos, tree) are not
-                  hijacked. Action buttons stopPropagation so they don't expand. */}
+              {/* Row 1 — name + actions. Visually a header strip with its own
+                  background + bottom border, extended to span the full card
+                  width via negative margins (S.card has 16px padding).
+                  Clicking it toggles expand/collapse. */}
               <div
                 onClick={() => setExpandedPerson((p) => ({ ...p, [person.label]: !isExpanded }))}
-                style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap", cursor: "pointer" }}
+                style={{
+                  display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap",
+                  cursor: "pointer",
+                  margin: "-16px -16px 12px -16px",
+                  padding: "10px 14px",
+                  background: "color-mix(in srgb, var(--lm-text) 5%, transparent)",
+                  borderBottom: "1px solid var(--lm-border)",
+                  borderTopLeftRadius: 12,
+                  borderTopRightRadius: 12,
+                }}
               >
                 <div style={{
                   fontSize: 14, fontWeight: 700,
