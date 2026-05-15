@@ -1,11 +1,11 @@
 ---
 name: habit
-description: Tracks and analyzes behavioral patterns (habits) for known users based on their wellbeing, presence, and activity history. Use when answering questions about a user's routines ("What are Leo's habits?", "Has Leo been keeping to his routine?", "Notice anything about my patterns?"), or when invoked from wellbeing/SKILL.md on a threshold nudge to refresh patterns and provide habit-aware phrasing. Also feeds music-suggestion/SKILL.md with `music_patterns` for personalized genre. Habit does NOT fire its own standalone nudge — it enriches wellbeing's threshold nudge phrasing.
+description: Tracks and analyzes behavioral patterns (habits) for known users based on their wellbeing, presence, posture, and activity history. Use when answering questions about a user's routines ("What are Leo's habits?", "Has Leo been keeping to his routine?", "Notice anything about my patterns?"), or when invoked from wellbeing/SKILL.md or posture/SKILL.md on a threshold nudge to refresh patterns and provide habit-aware phrasing. Also feeds music-suggestion/SKILL.md with `music_patterns` for personalized genre. Habit does NOT fire its own standalone nudge — it enriches wellbeing/posture threshold-nudge phrasing.
 ---
 
 # Habit Skill
 
-Habits are **repeating behavioral patterns** derived from historical logs. This skill reads existing data (wellbeing, presence, mood, music) to build patterns per user, then stores them for other skills to consume.
+Habits are **repeating behavioral patterns** derived from historical logs. This skill reads existing data (wellbeing, presence, mood, music, posture) to build patterns per user, then stores them for other skills to consume.
 
 > **OUTPUT RULE:** Reply is spoken VERBATIM. ONE short caring sentence. All computation, pattern math, and log lookups stay in `thinking`. NEVER output timestamps, deltas, frequency counts, or reasoning in the reply. **(Exception: Flow E — open habit questions — see below.)**
 
@@ -18,6 +18,7 @@ All data lives in `/root/local/users/{name}/`:
 | `wellbeing/` | `YYYY-MM-DD.jsonl` | `drink`, `break`, sedentary labels, `enter`/`leave`, `nudge_*` events with timestamps |
 | `mood/` | `YYYY-MM-DD.jsonl` | `signal` + `decision` rows with moods |
 | `music-suggestions/` | `YYYY-MM-DD.jsonl` | suggestion history + accepted/rejected status |
+| `posture/` | `YYYY-MM-DD.jsonl` | `posture_alert` (ergo-risk events from camera) + `nudge_posture` / `praise_posture` rows |
 
 **User names** are lowercase folder names under `/root/local/users/`. Known users: `leo`, `chloe`, `gray`, `lily`. Strangers collapse to `unknown` — this is treated as a regular user with its own folder and its own habit patterns (aggregated across all strangers).
 
@@ -107,6 +108,8 @@ curl -s "http://127.0.0.1:5000/api/openclaw/wellbeing-history?user={name}&last=5
 
 **From `wellbeing/SKILL.md`:** When wellbeing's Step 3 fires a threshold nudge, it invokes Flow A (which self-throttles via the freshness guard). Flow A returns the current `wellbeing_patterns`; wellbeing uses any matching pattern for the nudge action to enrich Step 4's phrasing (e.g. *"you usually drink around now"*). No separate habit-only nudge — habit context piggybacks on the threshold nudge. This keeps bootstrap cost on the rare nudge path, not on every `motion.activity` tick.
 
+**From `posture/SKILL.md`:** Same pattern. When posture decides to nudge AND its context block has `bootstrap_needed=true`, it invokes Flow A. Flow A returns `posture_patterns` (peak hour, side bias, typical risk) which the posture coach uses to phrase pattern-aware nudges (e.g. *"around this hour you usually slip"*).
+
 **From `music-suggestion/SKILL.md`:** Read `habit/patterns.json` → `music_patterns`. If habit data exists and current hour matches, use preferred genre instead of default genre table.
 
 ## Minimum Data Requirements
@@ -125,6 +128,7 @@ If data is insufficient: use default wellbeing thresholds / music genre table as
 - Habit break: *"You usually have water around now — everything okay?"*
 - Habit confirmed: *"Back at your desk right on schedule. [chuckle]"* — only say this if it feels natural
 - Music: *"It's your usual coding time — want some lo-fi?"*
+- Posture: *"Around this hour you usually slip — sit up from the start."*
 - When no data: silent (NO_REPLY) — never guess or fabricate habits
 
 **Open habit question (Flow E):**

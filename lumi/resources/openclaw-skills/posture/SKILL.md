@@ -130,7 +130,8 @@ Schema (semantic labels only — no raw scores, those live in the message):
     "today_vs_yesterday": "worse",    // worse | similar | better | unknown
     "current_streak_min": 25          // minutes since last alert (the longer, the better the user has been doing)
   },
-  "patterns_now": ["afternoon_slouch"]  // patterns whose peak_hour ≈ current_hour ±30m
+  "patterns_now": ["afternoon_slouch"],  // patterns whose peak_hour ≈ current_hour ±30m
+  "bootstrap_needed": false           // true → habit patterns.json missing/stale AND ≥3 posture days; invoke habit Flow A only when nudging
 }
 ```
 
@@ -244,6 +245,12 @@ curl -s -X POST http://127.0.0.1:5000/api/posture/log \
   -H 'Content-Type: application/json' \
   -d '{"action":"nudge_posture","nudge_level":5,"notes":"<your line>","user":"<current_user>"}'
 ```
+
+## Habit bootstrap (only on nudge turns)
+
+If you decided to nudge (L4 or L5 — voice routes) AND the context block has `bootstrap_needed=true` → invoke `habit/SKILL.md` Flow A in a separate tool turn to bootstrap `patterns.json` from the multi-day posture log. Otherwise, **do not load `habit/SKILL.md`** — the `profile` + `patterns_now` fields in the context block are sufficient (or no patterns yet, that's fine).
+
+Mirrors the wellbeing/habit bootstrap gate so habit Flow A runs at most every 6h on the rare nudge path, never on every `pose.ergo_risk` tick.
 
 ## Error handling
 
