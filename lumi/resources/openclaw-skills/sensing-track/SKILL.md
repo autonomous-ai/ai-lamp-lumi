@@ -7,7 +7,7 @@ description: Query flow event logs to answer questions about past sensing events
 
 ## Quick Start
 
-The primary data source is the **flow events JSONL** at `/root/local/flow_events_YYYY-MM-DD.jsonl`. Each file covers one calendar day (30-day retention, no size-rotation mid-day). Use Bash + `jq` to query it.
+The primary data source is the **flow events JSONL** at `/root/local/flow_events_YYYY-MM-DD.jsonl`. Each file covers one calendar day (7-day retention, no size-rotation mid-day). Use Bash + `jq` to query it.
 
 > **Important:** Always use the absolute path `/root/local/` — the `read` tool cannot access files outside the workspace, so use `exec` (Bash) for all JSONL queries.
 

@@ -22,9 +22,9 @@ This makes Flow A idempotent and safe to invoke from `wellbeing/SKILL.md` on eve
 
 ## Steps
 
-1. **Load multi-day data**: read the last 7–14 days of wellbeing JSONL files for the user.
+1. **Load multi-day data**: read the last 14–30 days of wellbeing JSONL files for the user. The threshold for emitting patterns is still `days_observed ≥ 3`, so a new user gets early patterns from day 4; the wider window only deepens accuracy once data accumulates.
    ```bash
-   ls /root/local/users/{name}/wellbeing/*.jsonl | sort | tail -14
+   ls /root/local/users/{name}/wellbeing/*.jsonl | sort | tail -30
    cat /root/local/users/{name}/wellbeing/YYYY-MM-DD.jsonl
    ```
    Track the total number of distinct dates loaded → `days_observed`.

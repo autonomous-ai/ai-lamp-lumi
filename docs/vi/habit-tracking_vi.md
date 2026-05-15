@@ -48,7 +48,7 @@ User nhắc đến hoạt động hàng ngày → Lumi âm thầm ghi vào wellb
 
 ## Xây dựng Pattern (Flow A)
 
-Habit skill đọc 7–14 ngày wellbeing JSONL và tính patterns:
+Habit skill đọc 14–30 ngày wellbeing JSONL và tính patterns (pattern vẫn emit khi `days_observed ≥ 3`, nên user mới có signal sớm từ ngày 4 — window rộng hơn chỉ tăng độ chính xác khi data tích lũy đủ):
 
 1. **Group** events theo `(action, hour)` qua tất cả các ngày
 2. **Đếm** tần suất: `số_ngày_xuất_hiện / tổng_ngày`

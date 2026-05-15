@@ -5,7 +5,7 @@
 // rows.
 //
 // Mirrors lib/mood structure (newer pattern than lib/wellbeing). Daily
-// JSONL files with 7-day retention.
+// JSONL files with 60-day retention.
 //
 // Usage:
 //
@@ -62,11 +62,12 @@ const (
 const (
 	postureSubdir = "posture"
 	fileSuffix    = ".jsonl"
-	// retentionDays is intentionally longer than mood / wellbeing / music
-	// (7 days) so the posture coach can do weekly/monthly trend framing
-	// — "tuần này vs tuần trước", future habit-integration patterns.
-	// Daily file caps at ~16 KB → 30 days ≈ 480 KB / user. Negligible.
-	retentionDays = 30
+	// retentionDays is intentionally longer than music (7 days) and the
+	// 30-day mood/wellbeing storage so the posture coach can do
+	// weekly/monthly trend framing — "tuần này vs tuần trước", future
+	// habit-integration patterns.
+	// Daily file caps at ~16 KB → 60 days ≈ 960 KB / user. Negligible.
+	retentionDays = 60
 	DefaultUser   = "unknown"
 )
 
