@@ -11,6 +11,8 @@ package skillcontext
 import (
 	"encoding/json"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -19,6 +21,8 @@ import (
 	"go-lamp.autonomous.ai/lib/posture"
 	"go-lamp.autonomous.ai/lib/usercanon"
 )
+
+const postureSubdir = "posture"
 
 // rePostureHeader extracts final score, risk_name, and per-side scores from
 // the lelamp pose.ergo_risk message header.
@@ -96,12 +100,13 @@ const (
 // The `profile` + `progress` blocks turn the skill from a per-event reactor
 // into a coach with a longitudinal view of the user.
 type postureContext struct {
-	Current     postureCurrent  `json:"current"`
-	Session     postureSession  `json:"session"`
-	Today       postureToday    `json:"today"`
-	Profile     postureProfile  `json:"profile"`
-	Progress    postureProgress `json:"progress"`
-	PatternsNow []string        `json:"patterns_now,omitempty"`
+	Current         postureCurrent  `json:"current"`
+	Session         postureSession  `json:"session"`
+	Today           postureToday    `json:"today"`
+	Profile         postureProfile  `json:"profile"`
+	Progress        postureProgress `json:"progress"`
+	PatternsNow     []string        `json:"patterns_now,omitempty"`
+	BootstrapNeeded bool            `json:"bootstrap_needed"` // patterns.json missing/stale AND posture_days >= 3 → invoke habit Flow A only when nudging
 }
 
 type postureCurrent struct {
@@ -118,10 +123,7 @@ type postureSession struct {
 }
 
 type postureToday struct {
-	TimeOfDay           string `json:"time_of_day"`             // morning|noon|afternoon|evening|night
-	Goal                string `json:"goal,omitempty"`          // set by morning ritual; empty otherwise
-	MorningGreetingDone bool   `json:"morning_greeting_done"`
-	EveningRecapDone    bool   `json:"evening_recap_done"`
+	TimeOfDay string `json:"time_of_day"` // morning|noon|afternoon|evening|night
 }
 
 // postureProfile is the rolling user profile from the last week of posture
@@ -166,15 +168,15 @@ func BuildPostureContext(user string, ev PostureEvent) string {
 			VoiceBudgetLeft: voiceBudgetLeft(events, now),
 		},
 		Today: postureToday{
-			TimeOfDay:           timeOfDayBucket(hour),
-			Goal:                readTodayGoal(events),
-			MorningGreetingDone: postureHasActionToday(events, posture.ActionMorningRecap),
-			EveningRecapDone:    postureHasActionToday(events, posture.ActionEveningRecap),
+			TimeOfDay: timeOfDayBucket(hour),
 		},
 		Profile:  buildProfile(user, now),
 		Progress: buildProgress(user, events, now),
-		// PatternsNow: integrated with habit/patterns.json in a follow-up.
-		PatternsNow: nil,
+		// PatternsNow stays nil until habit Flow A starts emitting
+		// posture-pattern bands the agent can attach to the current hour.
+		// Profile fields above already cover peak_hour / side_bias / typical_risk_bucket.
+		PatternsNow:     nil,
+		BootstrapNeeded: posturePatternsBootstrapNeeded(user),
 	}
 
 	buf, err := json.Marshal(ctx)
@@ -290,26 +292,6 @@ func voiceBudgetLeft(events []posture.Event, now time.Time) bool {
 		}
 	}
 	return count < voiceBudgetPerHour
-}
-
-// readTodayGoal scans today's morning_recap row and returns its notes (which
-// the agent populates with a free-text goal string). Empty if no recap.
-func readTodayGoal(events []posture.Event) string {
-	for i := len(events) - 1; i >= 0; i-- {
-		if events[i].Action == posture.ActionMorningRecap {
-			return events[i].Notes
-		}
-	}
-	return ""
-}
-
-func postureHasActionToday(events []posture.Event, action string) bool {
-	for _, e := range events {
-		if e.Action == action {
-			return true
-		}
-	}
-	return false
 }
 
 func lastActionTS(events []posture.Event, action string) float64 {
@@ -475,4 +457,34 @@ func bucketLabel(score int) string {
 	default:
 		return ""
 	}
+}
+
+// posturePatternsBootstrapNeeded returns true when habit/patterns.json is
+// missing or stale AND the user has at least `bootstrapMinDays` of posture
+// JSONL — i.e. enough data to be worth a habit Flow A rebuild. Mirrors
+// the wellbeing bootstrap gate so posture skill can invoke Flow A only on
+// nudge turns, not on every event.
+func posturePatternsBootstrapNeeded(user string) bool {
+	path := filepath.Join(usersDir, user, patternsSubpath)
+	if info, err := os.Stat(path); err == nil {
+		if time.Since(info.ModTime()) < patternsFreshAge {
+			return false
+		}
+	}
+	return countPostureDays(user) >= bootstrapMinDays
+}
+
+func countPostureDays(user string) int {
+	dir := filepath.Join(usersDir, user, postureSubdir)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0
+	}
+	n := 0
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".jsonl") {
+			n++
+		}
+	}
+	return n
 }

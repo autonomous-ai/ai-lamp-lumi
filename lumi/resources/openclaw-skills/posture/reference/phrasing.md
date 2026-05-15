@@ -13,7 +13,7 @@ filtered upstream), per-side scores, per-region sub-scores + 4 angles, optional
 `[skipped: ...]` joints.
 
 From `[posture_context]`: `asymmetric` / `dominant_side` / `trend`,
-`is_repeated` / `praise_eligible` / `voice_budget_left`, `today.goal`,
+`is_repeated` / `praise_eligible` / `voice_budget_left`,
 `patterns_now`, `last_offender_named`.
 
 Decode the message into region labels via `reading-message.md` BEFORE
@@ -188,18 +188,6 @@ When `patterns[*].peak_hour` is within ±30 min of `today.current_hour` AND
 Use sparingly — at most one pre-emptive nudge per pattern per day. Frame as
 "usually" or "this hour" — never quote the exact time from data.
 
-## Today-goal awareness
-
-If `today.goal` is non-empty AND set by morning ritual, you can reference it
-once per day at the right moment:
-
-- After an improvement that crosses the goal threshold:
-  *"There — right on the goal you set this morning. See if you can hold this through the afternoon."*
-- When risk rises despite a goal:
-  *"You set a goal this morning and we're past it now. No big deal — small adjust and we're back."*
-
-Never frame as pass/fail. Goals are aspirations, not contracts.
-
 ## Cross-skill phrasing (combine with wellbeing signals)
 
 If the same turn has BOTH:
@@ -234,7 +222,7 @@ gentle nudge, not a diagnosis"* — is the contract. Stay within it.
 - **Quoting raw numbers** — *"score 6"*, *"RULA 5/6"*, *"left 4 right 6"* — round, paraphrase, or omit. The user does not care about the number.
 - **Cop voice** — *"I'm observing…"*, *"System detected…"*. Coach voice is friendly, not clinical.
 - **Naming the framework** — never say "RULA", "ergo score", "pose estimation". User doesn't care.
-- **Stacking warnings** — pick max 3 signals from {asymmetry, trend, today.goal, pattern}.
+- **Stacking warnings** — pick max 3 signals from {asymmetry, trend, pattern}.
 - **Repeating the last opener** — even if the same risk level is detected back-to-back.
 - **Praising without a fix** — only after a confirmed improvement.
 - **Lecturing on ergonomics** — give one fact max, never a paragraph.
