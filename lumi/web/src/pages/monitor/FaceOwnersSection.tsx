@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Pencil, Trash2, History, ChevronDown, ChevronRight } from "lucide-react";
+import { Pencil, Trash2, History, ChevronDown, ChevronRight, X } from "lucide-react";
 import { S } from "./styles";
 import { HW } from "./types";
 import type { FaceOwnersDetail } from "./types";
@@ -119,6 +119,9 @@ export function FaceOwnersSection() {
   // Tracks which card is hovered so its action buttons fade in (cleaner UX
   // than a permanent row of icons cluttering every card).
   const [hoveredPerson, setHoveredPerson] = useState<string | null>(null);
+  // Tracks the hovered photo thumbnail so only its delete button shows —
+  // identified by "label/filename".
+  const [hoveredPhoto, setHoveredPhoto] = useState<string | null>(null);
 
   // Unknown voice clusters (/voice/strangers).
   const [strangers, setStrangers] = useState<StrangersData | null>(null);
@@ -795,18 +798,21 @@ export function FaceOwnersSection() {
                     {person.photos.map((photo) => {
                       const delKey = `${person.label}/${photo}`;
                       const isDeleting = deletingPhoto === delKey;
+                      const isHovered = hoveredPhoto === delKey;
                       return (
                         <div
                           key={photo}
                           title={photo}
-                          style={{ position: "relative", width: 48, height: 48 }}
+                          onMouseEnter={() => setHoveredPhoto(delKey)}
+                          onMouseLeave={() => setHoveredPhoto((cur) => (cur === delKey ? null : cur))}
+                          style={{ position: "relative", width: 56, height: 56 }}
                         >
                           <img
                             src={`${HW}/face/photo/${person.label}/${photo}`}
                             style={{
                               width: "100%", height: "100%",
                               objectFit: "cover",
-                              borderRadius: 4,
+                              borderRadius: 6,
                               border: "1px solid var(--lm-border)",
                               display: "block",
                               cursor: "pointer",
@@ -819,20 +825,23 @@ export function FaceOwnersSection() {
                             disabled={isDeleting}
                             title={`Remove ${photo}`}
                             style={{
-                              position: "absolute", top: -4, right: -4,
-                              width: 16, height: 16,
-                              borderRadius: "50%",
-                              background: "var(--lm-red)",
+                              position: "absolute", top: 3, right: 3,
+                              width: 20, height: 20,
+                              borderRadius: 5,
+                              background: "rgba(0,0,0,0.55)",
                               color: "#fff",
-                              border: "1.5px solid var(--lm-card)",
-                              fontSize: 10, fontWeight: 700, lineHeight: 1,
+                              border: "none",
                               cursor: isDeleting ? "wait" : "pointer",
                               padding: 0,
                               display: "flex", alignItems: "center", justifyContent: "center",
-                              opacity: isDeleting ? 0.5 : 1,
-                              boxShadow: "0 1px 2px rgba(0,0,0,0.4)",
+                              opacity: isDeleting ? 0.5 : (isHovered ? 1 : 0),
+                              pointerEvents: isHovered ? "auto" : "none",
+                              transition: "opacity 0.15s ease",
+                              backdropFilter: "blur(2px)",
                             }}
-                          >×</button>
+                          >
+                            <X size={12} strokeWidth={2.5} />
+                          </button>
                         </div>
                       );
                     })}
