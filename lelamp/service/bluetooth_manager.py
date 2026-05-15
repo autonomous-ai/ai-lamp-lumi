@@ -7,6 +7,7 @@ the private-mode preference.
 import json
 import logging
 import os
+import pwd
 import re
 import subprocess
 import threading
@@ -25,6 +26,80 @@ _DEVICE_LINE_RE = re.compile(r"^Device ([0-9A-F:]{17})\s+(.*)$", re.I)
 
 def _run(args: list[str], timeout: float = 10.0) -> subprocess.CompletedProcess:
     return subprocess.run(args, capture_output=True, text=True, timeout=timeout)
+
+
+def _resolve_pulse_owner() -> tuple[Optional[str], Optional[int], Optional[int]]:
+    """Locate the per-user PulseAudio: returns (XDG_RUNTIME_DIR, uid, gid).
+
+    lelamp runs as root via systemd while PulseAudio runs as the desktop user
+    (uid 1000 on OrangePi/Pi). Two problems to solve:
+      1. Without XDG_RUNTIME_DIR pactl can't find the PA socket.
+      2. libpulse refuses a root connection to a non-root socket
+         ('XDG_RUNTIME_DIR is not owned by us'). So we drop privileges in
+         the pactl subprocess via preexec_fn.
+
+    We scan /run/user/*/pulse/native for an existing socket and pick the
+    first match — there's only one desktop user on these devices."""
+    if os.environ.get("XDG_RUNTIME_DIR"):
+        try:
+            st = os.stat(os.environ["XDG_RUNTIME_DIR"])
+            return os.environ["XDG_RUNTIME_DIR"], st.st_uid, st.st_gid
+        except OSError:
+            return os.environ["XDG_RUNTIME_DIR"], None, None
+    try:
+        for entry in os.scandir("/run/user"):
+            sock = os.path.join(entry.path, "pulse", "native")
+            if os.path.exists(sock):
+                try:
+                    uid = int(entry.name)
+                    gid = pwd.getpwuid(uid).pw_gid
+                except (KeyError, ValueError):
+                    uid = gid = None
+                return entry.path, uid, gid
+    except FileNotFoundError:
+        pass
+    return None, None, None
+
+
+_PULSE_RUNTIME_DIR, _PULSE_UID, _PULSE_GID = _resolve_pulse_owner()
+if _PULSE_RUNTIME_DIR:
+    logger.info(
+        "PulseAudio runtime: dir=%s uid=%s gid=%s",
+        _PULSE_RUNTIME_DIR, _PULSE_UID, _PULSE_GID,
+    )
+else:
+    logger.warning("No PulseAudio runtime dir found — pactl calls will fail")
+
+
+def _pactl(args: list[str], timeout: float = 5.0) -> subprocess.CompletedProcess:
+    """Run pactl with the right env + identity to reach the per-user PA."""
+    env = os.environ.copy()
+    if _PULSE_RUNTIME_DIR:
+        env["XDG_RUNTIME_DIR"] = _PULSE_RUNTIME_DIR
+
+    kwargs: dict = dict(capture_output=True, text=True, timeout=timeout, env=env)
+
+    # libpulse rejects root opening a user socket. Drop into the PA owner's
+    # uid/gid before exec so the connection passes the ownership check.
+    if (
+        os.geteuid() == 0
+        and _PULSE_UID is not None
+        and _PULSE_UID != 0
+    ):
+        uid, gid = _PULSE_UID, _PULSE_GID
+
+        def _drop_priv():
+            if gid is not None:
+                try:
+                    os.setgroups([])
+                except PermissionError:
+                    pass
+                os.setgid(gid)
+            os.setuid(uid)
+
+        kwargs["preexec_fn"] = _drop_priv
+
+    return subprocess.run(["pactl", *args], **kwargs)
 
 
 def _parse_devices(out: str) -> list[dict]:
@@ -224,21 +299,21 @@ class BluetoothManager:
 
     def pa_default_sink(self) -> Optional[str]:
         try:
-            r = _run(["pactl", "get-default-sink"], timeout=3)
+            r = _pactl(["get-default-sink"], timeout=3)
             return r.stdout.strip() if r.returncode == 0 and r.stdout.strip() else None
         except Exception:
             return None
 
     def pa_default_source(self) -> Optional[str]:
         try:
-            r = _run(["pactl", "get-default-source"], timeout=3)
+            r = _pactl(["get-default-source"], timeout=3)
             return r.stdout.strip() if r.returncode == 0 and r.stdout.strip() else None
         except Exception:
             return None
 
     def set_pa_default_sink(self, sink_name: str) -> bool:
         try:
-            r = _run(["pactl", "set-default-sink", sink_name], timeout=3)
+            r = _pactl(["set-default-sink", sink_name], timeout=3)
             return r.returncode == 0
         except Exception as e:
             logger.warning("set-default-sink %s failed: %s", sink_name, e)
@@ -246,7 +321,7 @@ class BluetoothManager:
 
     def set_pa_default_source(self, source_name: str) -> bool:
         try:
-            r = _run(["pactl", "set-default-source", source_name], timeout=3)
+            r = _pactl(["set-default-source", source_name], timeout=3)
             return r.returncode == 0
         except Exception as e:
             logger.warning("set-default-source %s failed: %s", source_name, e)
@@ -255,8 +330,10 @@ class BluetoothManager:
     def pa_sink_for_mac(self, mac: str) -> Optional[str]:
         """Return the PulseAudio sink name exposing this BT device, or None."""
         try:
-            r = _run(["pactl", "list", "short", "sinks"], timeout=5)
+            r = _pactl(["list", "short", "sinks"], timeout=5)
             if r.returncode != 0:
+                logger.warning("pactl list sinks failed: rc=%s stderr=%s",
+                               r.returncode, r.stderr.strip())
                 return None
             needle = mac.upper().replace(":", "_")
             for line in r.stdout.splitlines():
@@ -274,7 +351,7 @@ class BluetoothManager:
         """Return the PulseAudio source for this BT device (HFP profile only;
         A2DP-only headphones have no real source)."""
         try:
-            r = _run(["pactl", "list", "short", "sources"], timeout=5)
+            r = _pactl(["list", "short", "sources"], timeout=5)
             if r.returncode != 0:
                 return None
             needle = mac.upper().replace(":", "_")
