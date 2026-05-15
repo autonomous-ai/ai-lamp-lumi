@@ -106,9 +106,13 @@ export function FlowDiagram({
     intent_check:      { x: 80, y: 50 },
     local_match:       { x: 200, y: 50 },
     lumi_gate:         { x: 467, y: 795 },
-    // LeLamp — input row (MIC/CAM)
+    // LeLamp — input row (MIC/CAM/BTN)
     mic_input:         { x: -40, y: 240 },
     cam_input:         { x: 80, y: 240 },
+    // Button / touch input — physical interaction (GPIO button, TTP223
+    // touchpad). Sits below mic so it doesn't crowd the input row and
+    // its edge to intent_check has a clear path up-right past mic.
+    button_input:      { x: -40, y: 350 },
     // LeLamp — output column (stacked vertically, same x, gap=135)
     hw_emotion:        { x: 200, y: 390 },
     hw_led:            { x: 200, y: 525 },
@@ -148,6 +152,7 @@ export function FlowDiagram({
   const edges: [FlowStage, FlowStage][] = [
     ["mic_input",         "intent_check"],
     ["cam_input",         "intent_check"],
+    ["button_input",      "intent_check"],
     ["intent_check",      "local_match"],
     ["local_match",       "hw_emotion"],
     ["local_match",       "hw_led"],

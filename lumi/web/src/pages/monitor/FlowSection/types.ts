@@ -2,7 +2,7 @@ import type { DisplayEvent } from "../types";
 
 // Maps a MonitorEvent type/node to a flow stage ID
 export type FlowStage =
-  | "mic_input" | "cam_input" | "channel_input" | "webchat_input" | "intent_check" | "local_match"
+  | "mic_input" | "cam_input" | "button_input" | "channel_input" | "webchat_input" | "intent_check" | "local_match"
   | "agent_call" | "agent_thinking" | "tool_exec" | "agent_response" | "tts_speak"
   | "schedule_trigger" | "lumi_gate" | "hw_led" | "hw_servo" | "hw_emotion" | "hw_audio" | "hw_wellbeing" | "hw_mood" | "hw_music_suggestion" | "hw_posture" | "tg_out" | "tg_alert";
 
@@ -55,6 +55,12 @@ export const FLOW_NODES: FlowNodeDef[] = [
     label: "Cam Input", short: "CAM", icon: "👁", color: "var(--lm-amber)", path: "main",
     shape: "hexagon",
     desc: "Motion / presence / light from camera",
+    triggers: [] },
+
+  { id: "button_input",
+    label: "Button / Touch", short: "BTN", icon: "✋", color: "var(--lm-amber)", path: "main",
+    shape: "hexagon",
+    desc: "Physical input from GPIO button / TTP223 touchpad — head pat, single click, etc.",
     triggers: [] },
 
   { id: "channel_input",

@@ -706,7 +706,7 @@ export function groupIntoTurns(events: DisplayEvent[]): Turn[] {
 // Extract runtime info for each node from turn events
 export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
   const info: NodeInfoMap = {
-    mic_input: [], cam_input: [], channel_input: [], webchat_input: [], intent_check: [], local_match: [],
+    mic_input: [], cam_input: [], button_input: [], channel_input: [], webchat_input: [], intent_check: [], local_match: [],
     agent_call: [], agent_thinking: [], tool_exec: [],
     agent_response: [], tts_speak: [], schedule_trigger: [],
     lumi_gate: [], hw_led: [], hw_servo: [], hw_emotion: [], hw_audio: [], hw_wellbeing: [], hw_mood: [], hw_music_suggestion: [], hw_posture: [], tg_out: [], tg_alert: [],
@@ -747,8 +747,9 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
       if (isWeb) {
         info.webchat_input.push(`"${m?.[2] ?? ev.summary}"`);
       } else {
-        const isCam = /motion|presence|light|touch/i.test(sType);
-        const target = isCam ? info.cam_input : info.mic_input;
+        const isButton = /^touch\./i.test(sType);
+        const isCam = !isButton && /motion|presence|light/i.test(sType);
+        const target = isButton ? info.button_input : isCam ? info.cam_input : info.mic_input;
         if (m) {
           target.push(`type: ${m[1]}`, `"${m[2]}"`);
         } else {
