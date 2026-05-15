@@ -19,6 +19,11 @@ const CAT_TYPES: Record<string, string[]> = {
   web: ["web_chat"],
   cron: ["cron", "cron:music"],
   system: ["system", "schedule", "music.mood"],
+  // Physical input from GPIO button / TTP223 touchpad / future remotes
+  // (button_actions.py). Currently only head_pat fires an agent event;
+  // single/triple/long press are local-only (listen cue / reboot /
+  // shutdown) and never POST to /sensing/event.
+  button: ["touch.head_pat"],
 };
 const TYPE_ICON: Record<string, string> = {
   ...SOURCE_ICON,
@@ -26,7 +31,7 @@ const TYPE_ICON: Record<string, string> = {
 };
 const TYPE_LABEL: Record<string, string> = {
   voice: "voice", voice_command: "cmd", sound: "sound",
-  motion: "motion", "motion.activity": "activity", "emotion.detected": "emotion", "speech_emotion": "voice_emo", "speech_emotion.detected": "voice_emo", "pose.ergo_risk": "posture", "presence.enter": "enter", "presence.leave": "leave", "presence.away": "away",
+  motion: "motion", "motion.activity": "activity", "emotion.detected": "emotion", "speech_emotion": "voice_emo", "speech_emotion.detected": "voice_emo", "pose.ergo_risk": "posture", "presence.enter": "enter", "presence.leave": "leave", "presence.away": "away", "touch.head_pat": "head pat",
   "light.level": "light", environment: "env", system: "sys",
   "music.mood": "mood", web_chat: "web", telegram: "channel", discord: "channel", slack: "channel", wechat: "channel", channel: "channel", schedule: "sched",
   cron: "cron", "cron:music": "🎵music",
@@ -372,7 +377,7 @@ export function FlowSection({
         detectedType = extractSensingType(ev.summary) ?? "";
       }
       const isMicEmotion = /speech_emotion/i.test(detectedType ?? "");
-      const isCam = !isMicEmotion && /motion|presence|light|emotion/i.test(detectedType ?? "");
+      const isCam = !isMicEmotion && /motion|presence|light|emotion|touch/i.test(detectedType ?? "");
       visitedStages.add(isCam ? "cam_input" : "mic_input");
       break;
     }
@@ -601,6 +606,7 @@ export function FlowSection({
               {([
                 { key: "mic", icon: "🎤", label: "Mic" },
                 { key: "cam", icon: "👁", label: "Cam" },
+                { key: "button", icon: "✋", label: "Btn" },
                 { key: "channel", icon: "💬", label: "CH" },
                 { key: "web", icon: "🖥", label: "Web" },
                 { key: "cron", icon: "⏰", label: "Cron" },

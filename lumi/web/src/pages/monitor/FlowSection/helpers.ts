@@ -747,7 +747,7 @@ export function extractNodeInfo(events: DisplayEvent[]): NodeInfoMap {
       if (isWeb) {
         info.webchat_input.push(`"${m?.[2] ?? ev.summary}"`);
       } else {
-        const isCam = /motion|presence|light/i.test(sType);
+        const isCam = /motion|presence|light|touch/i.test(sType);
         const target = isCam ? info.cam_input : info.mic_input;
         if (m) {
           target.push(`type: ${m[1]}`, `"${m[2]}"`);
