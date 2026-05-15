@@ -576,7 +576,10 @@ export function groupIntoTurns(events: DisplayEvent[]): Turn[] {
     // chat_final_empty: OpenClaw sent state:"final" with empty Message for a
     // Lumi-format runId that never opened a lifecycle. Factual close event —
     // no interpretation. (Legacy `turn_steered` is back-compat for old JSONL.)
-    if (ev.type === "flow_event" && (ev.detail?.node === "chat_final_empty" || ev.detail?.node === "turn_steered")) {
+    // chat_final_ok: same shape but non-empty Message — slash commands
+    // (/status, /new, /compact) dispatched pre-LLM by OpenClaw return a
+    // payload without ever opening a lifecycle.
+    if (ev.type === "flow_event" && (ev.detail?.node === "chat_final_empty" || ev.detail?.node === "chat_final_ok" || ev.detail?.node === "turn_steered")) {
       current.status = "done";
       current.endTime = ev.time;
     }
