@@ -649,8 +649,7 @@ func (h *SensingHandler) PostWellbeingLog(c *gin.Context) {
 
 // PostureLogRequest is the JSON body the agent / HW marker dispatcher sends to
 // /api/posture/log. `action` is one of the constants in lib/posture (alert,
-// nudge, praise, recap variants); only the fields relevant to that action are
-// expected.
+// nudge, praise); only the fields relevant to that action are expected.
 type PostureLogRequest struct {
 	Action     string `json:"action" validate:"required"`
 	NudgeLevel int    `json:"nudge_level,omitempty"`
@@ -663,8 +662,7 @@ type PostureLogRequest struct {
 }
 
 // PostPostureLog appends a posture-history row. Dispatches to LogAlert /
-// LogNudge / LogPraise / LogMorningRecap / LogEveningRecap / LogWeeklyRecap
-// depending on `action`; unknown actions return 400.
+// LogNudge / LogPraise depending on `action`; unknown actions return 400.
 func (h *SensingHandler) PostPostureLog(c *gin.Context) {
 	var req PostureLogRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -694,12 +692,6 @@ func (h *SensingHandler) PostPostureLog(c *gin.Context) {
 		posture.LogNudge(user, req.NudgeLevel, req.Notes)
 	case posture.ActionPraise:
 		posture.LogPraise(user, req.Notes)
-	case posture.ActionMorningRecap:
-		posture.LogMorningRecap(user, req.Notes)
-	case posture.ActionEveningRecap:
-		posture.LogEveningRecap(user, req.Notes)
-	case posture.ActionWeeklyRecap:
-		posture.LogWeeklyRecap(user, req.Notes)
 	default:
 		c.JSON(http.StatusBadRequest, serializers.ResponseError("unknown posture action: "+req.Action))
 		return

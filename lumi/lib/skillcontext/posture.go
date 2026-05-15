@@ -118,10 +118,7 @@ type postureSession struct {
 }
 
 type postureToday struct {
-	TimeOfDay           string `json:"time_of_day"`             // morning|noon|afternoon|evening|night
-	Goal                string `json:"goal,omitempty"`          // set by morning ritual; empty otherwise
-	MorningGreetingDone bool   `json:"morning_greeting_done"`
-	EveningRecapDone    bool   `json:"evening_recap_done"`
+	TimeOfDay string `json:"time_of_day"` // morning|noon|afternoon|evening|night
 }
 
 // postureProfile is the rolling user profile from the last week of posture
@@ -166,10 +163,7 @@ func BuildPostureContext(user string, ev PostureEvent) string {
 			VoiceBudgetLeft: voiceBudgetLeft(events, now),
 		},
 		Today: postureToday{
-			TimeOfDay:           timeOfDayBucket(hour),
-			Goal:                readTodayGoal(events),
-			MorningGreetingDone: postureHasActionToday(events, posture.ActionMorningRecap),
-			EveningRecapDone:    postureHasActionToday(events, posture.ActionEveningRecap),
+			TimeOfDay: timeOfDayBucket(hour),
 		},
 		Profile:  buildProfile(user, now),
 		Progress: buildProgress(user, events, now),
@@ -290,26 +284,6 @@ func voiceBudgetLeft(events []posture.Event, now time.Time) bool {
 		}
 	}
 	return count < voiceBudgetPerHour
-}
-
-// readTodayGoal scans today's morning_recap row and returns its notes (which
-// the agent populates with a free-text goal string). Empty if no recap.
-func readTodayGoal(events []posture.Event) string {
-	for i := len(events) - 1; i >= 0; i-- {
-		if events[i].Action == posture.ActionMorningRecap {
-			return events[i].Notes
-		}
-	}
-	return ""
-}
-
-func postureHasActionToday(events []posture.Event, action string) bool {
-	for _, e := range events {
-		if e.Action == action {
-			return true
-		}
-	}
-	return false
 }
 
 func lastActionTS(events []posture.Event, action string) float64 {

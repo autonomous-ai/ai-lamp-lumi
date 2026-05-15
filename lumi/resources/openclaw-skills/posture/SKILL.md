@@ -1,6 +1,6 @@
 ---
 name: posture
-description: Posture coach. React to ergonomic-risk events (RULA-based) from the lamp's camera. Escalate from soft (chime/servo) → coaching sentence as risk holds. Praise when the user fixes posture after a nudge. Also handles morning/evening posture rituals fired by the backend cron.
+description: Posture coach. React to ergonomic-risk events (RULA-based) from the lamp's camera. Escalate from soft (chime/servo) → coaching sentence as risk holds. Praise when the user fixes posture after a nudge. Pattern-aware phrasing comes from the pre-injected context block (peak hour, side bias, today-vs-yesterday) — no separate ritual route.
 ---
 
 # Posture
@@ -67,14 +67,11 @@ the user.
 | Purpose | URL |
 |---|---|
 | Read history | `http://127.0.0.1:5000/api/openclaw/posture-history` |
-| Read stats | `http://127.0.0.1:5000/api/openclaw/posture-stats` |
 | Log nudge | `http://127.0.0.1:5000/api/posture/log` |
 
 - Port **5000** = Lumi (data APIs).
 - Port **5001** = LeLamp HARDWARE. Has NO `/api/posture/*` route — 404 silently.
 - Do not pattern-match from other skills' hardware endpoints (`5001/audio/play`, `5001/face/enroll`, etc.) — those are unrelated.
-
-> **TODO[lumi-backend]: confirm endpoints are wired.** Mirror `wellbeing` handler shape: POST log + GET history + GET stats. Until backend ships these, this skill will 404 — fall back to NO_REPLY rather than guessing alternate paths.
 
 **User attribution:** every `user` field MUST come from the `[context: current_user=X]` tag the backend injects into the triggering event. Strangers collapse to `"unknown"`. If no context tag is present, default to `"unknown"`.
 
@@ -91,9 +88,9 @@ PRAISE_COOLDOWN_MIN      = 30     # don't praise more than once per N min
 
 ## Rules (Never / Only)
 
-1. **Only** call `http://127.0.0.1:5000/api/openclaw/posture-history` and `…/posture-stats` to read. **Never** read `/root/local/users/*/posture/*.jsonl` with `cat`, `ls`, `head`, `tail`, `grep`, or any filesystem tool.
+1. **Only** call `http://127.0.0.1:5000/api/openclaw/posture-history` to read. **Never** read `/root/local/users/*/posture/*.jsonl` with `cat`, `ls`, `head`, `tail`, `grep`, or any filesystem tool.
 2. **Only** POST to `http://127.0.0.1:5000/api/posture/log`. **Never** substitute `5001`, `8080`, or any other port.
-3. **Only** write these action values: `nudge_posture`, `praise_posture`, `morning_recap_posture`, `evening_recap_posture`. Never invent new actions. (Alert rows — `posture_alert`, `calibration` — are written by LeLamp, never by you.)
+3. **Only** write these action values: `nudge_posture`, `praise_posture`. Never invent new actions. (Alert rows — `posture_alert`, `calibration` — are written by LeLamp, never by you.)
 4. On a non-2xx response from a POST → fix the URL and retry **once**. Do not give up silently.
 5. **Never** infer `user` from memory or chat history. Only `[context: current_user=X]` counts.
 6. **Never speak a medical diagnosis.** Frame as "risk over time" / "you'll feel it later" — never "you have X". Disease names are vocabulary cues for phrasing, NOT pronouncements.
@@ -103,8 +100,6 @@ PRAISE_COOLDOWN_MIN      = 30     # don't praise more than once per N min
 ## Read pre-fetched context (do not re-fetch)
 
 The backend injects a `[posture_context: {...JSON...}]` block into this turn's message. Do NOT fire any tool calls to re-fetch this data.
-
-> **TODO[lumi-backend]: implement `[posture_context: ...]` pre-injection** in `lib/skillcontext/posture.go` mirroring `wellbeing.go`. Fields below are the contract this skill expects.
 
 Schema (semantic labels only — no raw scores, those live in the message):
 
@@ -123,10 +118,7 @@ Schema (semantic labels only — no raw scores, those live in the message):
     "last_offender_named": "neck"     // region named in the most recent nudge — avoid repeating
   },
   "today": {
-    "time_of_day": "afternoon",       // morning|noon|afternoon|evening|night
-    "goal": "score ≤ 4 afternoon",    // set by morning ritual; "" if none
-    "morning_greeting_done": true,
-    "evening_recap_done": false
+    "time_of_day": "afternoon"        // morning|noon|afternoon|evening|night
   },
   "profile": {                        // rolling 7-day user posture profile (empty when <5 alerts in window)
     "alerts_last_7d": 42,             // total posture_alert rows last 7 days
@@ -152,13 +144,7 @@ Notes:
 If pre-injection failed, fall back:
 
 ```bash
-{
-  echo '---history---'
-  curl -s "http://127.0.0.1:5000/api/openclaw/posture-history?user=<current_user>&last=100" | jq '.data.events' &
-  echo '---stats---'
-  curl -s "http://127.0.0.1:5000/api/openclaw/posture-stats?user=<current_user>&date=$(date +%F)" | jq '.data' &
-  wait
-}
+curl -s "http://127.0.0.1:5000/api/openclaw/posture-history?user=<current_user>&last=100" | jq '.data.events'
 ```
 
 In the fallback path, compute trend/budget yourself by scanning history rows.
@@ -251,8 +237,6 @@ Don't over-quote the data ("you usually slouch at 15:07") — feels like a track
 - Praise: `[HW:/emotion:{"emotion":"warm","intensity":0.7}][HW:/posture/log:{"action":"praise_posture","notes":"<your line>","user":"<current_user>"}] <one short warm line>`
 - Silent: NO HW marker. Just `NO_REPLY`.
 
-> **TODO[lumi-backend]: confirm HW marker route `/posture/log`** is registered in the runtime stripper + dispatcher (mirror `/wellbeing/log`).
-
 ### Fallback (only if HW marker is rejected by the runtime)
 
 ```bash
@@ -260,18 +244,6 @@ curl -s -X POST http://127.0.0.1:5000/api/posture/log \
   -H 'Content-Type: application/json' \
   -d '{"action":"nudge_posture","nudge_level":5,"notes":"<your line>","user":"<current_user>"}'
 ```
-
-## Ritual routes (cron-fired)
-
-The backend cron fires three additional message types into this skill:
-
-- `[ritual:posture-morning]` at ~08:30
-- `[ritual:posture-evening]` at ~21:00
-- `[ritual:posture-weekly]` Sunday ~21:00
-
-> **TODO[lumi-backend]: implement cron + ritual context injection.** Until cron exists, ignore these — they will simply never arrive.
-
-See `reference/rituals.md` for the morning/evening/weekly phrasing. (TODO: write this reference file once ritual context shape is settled.)
 
 ## Error handling
 
@@ -288,7 +260,6 @@ See `reference/rituals.md` for the morning/evening/weekly phrasing. (TODO: write
 | `calibration` | LeLamp | User-baseline capture during onboarding. |
 | `nudge_posture` | **You**, after speaking or firing a servo/chime | Carries `nudge_level` 2-5. Resets the "next nudge eligible" timer. |
 | `praise_posture` | **You**, on the praise route after a fix | Carries `notes` = the line you spoke. |
-| `morning_recap_posture` / `evening_recap_posture` | **You**, on ritual routes | Once-per-day gate. |
 
 ## Out of scope — route elsewhere
 
