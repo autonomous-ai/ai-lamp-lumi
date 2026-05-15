@@ -194,6 +194,11 @@ def _detect_face_yunet(frame: npt.NDArray[np.uint8]) -> Optional[Tuple[int, int,
 # 10fps × 2 substeps ≈ 20 writes/sec → softer continuous motion.
 FAST_LOOP_FPS = 10
 
+# Hardware velocity limit for tracking (Feetech STS3215 Goal_Velocity register).
+# 0 = unlimited (default). Lower = slower, smoother camera pan → ViT stays locked.
+# Unit: steps/s. ~200 ≈ moderate tracking speed. Set to 0 to disable.
+TRACKING_GOAL_VELOCITY = 150
+
 # Camera field-of-view in degrees (horizontal). Used to convert px offset → degrees.
 CAMERA_FOV_DEG = 60.0
 
@@ -812,6 +817,17 @@ class TrackerService:
         animation_service._tracking_active = True
         logger.info("Servo hold mode + tracking lock ON")
 
+        _tracking_motors = ["base_yaw", "base_pitch", "elbow_pitch", "wrist_pitch"]
+        if TRACKING_GOAL_VELOCITY > 0:
+            try:
+                with animation_service.bus_lock:
+                    animation_service.robot.bus.sync_write(
+                        "Goal_Velocity", {m: TRACKING_GOAL_VELOCITY for m in _tracking_motors}
+                    )
+                logger.info("[tracking] Goal_Velocity set to %d for all joints", TRACKING_GOAL_VELOCITY)
+            except Exception as e:
+                logger.warning("[tracking] Failed to set Goal_Velocity: %s", e)
+
         # Read initial servo positions — track internally after this.
         try:
             from lelamp.service.motors.animation_service import _motor_positions_from_bus
@@ -1201,6 +1217,11 @@ class TrackerService:
             state.running.clear()
 
             try:
+                if TRACKING_GOAL_VELOCITY > 0:
+                    with animation_service.bus_lock:
+                        animation_service.robot.bus.sync_write(
+                            "Goal_Velocity", {m: 0 for m in _tracking_motors}
+                        )
                 time.sleep(0.8)
                 with animation_service.bus_lock:
                     animation_service.robot.send_action({
