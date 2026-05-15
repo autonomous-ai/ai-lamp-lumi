@@ -10,17 +10,33 @@ interface CliEntry {
   ts: string;
 }
 
+const HISTORY_KEY = "lumi.cli.history";
+const HISTORY_MAX = 200;
+const SUGGESTIONS = ["uptime", "df -h /", "free -m", "systemctl status lumi-lelamp"];
+
 let _entryId = 0;
+
+function loadHistory(): string[] {
+  try {
+    const raw = localStorage.getItem(HISTORY_KEY);
+    if (!raw) return [];
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr.filter((s) => typeof s === "string") : [];
+  } catch {
+    return [];
+  }
+}
 
 export function CliSection() {
   const [input, setInput] = useState("");
   const [entries, setEntries] = useState<CliEntry[]>([]);
   const [running, setRunning] = useState(false);
   const [histIdx, setHistIdx] = useState(-1);
+  const [copiedId, setCopiedId] = useState<number | null>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const history = useRef<string[]>([]);
+  const history = useRef<string[]>(loadHistory());
 
   // Auto-scroll on new output
   useEffect(() => {
@@ -33,8 +49,11 @@ export function CliSection() {
     const trimmed = cmd.trim();
     if (!trimmed) return;
 
-    // Push to history
-    history.current = [trimmed, ...history.current.slice(0, 199)];
+    // Push to history (dedupe consecutive same command) and persist.
+    if (history.current[0] !== trimmed) {
+      history.current = [trimmed, ...history.current.slice(0, HISTORY_MAX - 1)];
+      try { localStorage.setItem(HISTORY_KEY, JSON.stringify(history.current)); } catch {}
+    }
     setHistIdx(-1);
 
     const id = ++_entryId;
@@ -94,7 +113,19 @@ export function CliSection() {
     } else if (e.key === "l" && e.ctrlKey) {
       e.preventDefault();
       setEntries([]);
+    } else if (e.key === "Tab") {
+      // Block default focus shift — terminal-like behavior keeps input focused.
+      e.preventDefault();
     }
+  };
+
+  const copyEntry = (entry: CliEntry) => {
+    const text = [entry.stdout, entry.stderr].filter(Boolean).join("\n").trim();
+    if (!text) return;
+    navigator.clipboard.writeText(text).then(() => {
+      setCopiedId(entry.id);
+      setTimeout(() => setCopiedId((id) => id === entry.id ? null : id), 1500);
+    }).catch(() => {});
   };
 
   const btnStyle: React.CSSProperties = {
@@ -107,11 +138,18 @@ export function CliSection() {
     <div style={{ display: "flex", flexDirection: "column", height: "100%", gap: 0 }}>
       {/* Toolbar */}
       <div style={{
-        display: "flex", alignItems: "center", gap: 8,
-        padding: "0 0 8px 0", flexShrink: 0,
+        display: "flex", alignItems: "center", gap: 10,
+        padding: "0 0 8px 0", flexShrink: 0, flexWrap: "wrap",
       }}>
         <span style={{ fontSize: 11, color: "var(--lm-text-muted)" }}>
           Shell — Pi (30s timeout)
+        </span>
+        <span style={{ fontSize: 10, color: "var(--lm-text-dim)" }}>
+          {entries.length} {entries.length === 1 ? "entry" : "entries"} · {history.current.length} in history
+        </span>
+        <span style={{ flex: 1 }} />
+        <span style={{ fontSize: 9.5, color: "var(--lm-text-muted)", fontFamily: "monospace" }}>
+          ↑↓ history · Ctrl+L clear
         </span>
         <button onClick={() => setEntries([])} style={btnStyle}>Clear</button>
       </div>
@@ -131,7 +169,24 @@ export function CliSection() {
       >
         {entries.length === 0 && (
           <div style={{ color: "var(--lm-text-muted)", fontSize: 10.5 }}>
-            Type a command below. ↑↓ for history. Ctrl+L to clear.
+            <div style={{ marginBottom: 8 }}>
+              Type a command below. ↑↓ for history. Ctrl+L to clear.
+            </div>
+            <div style={{ fontSize: 10, color: "var(--lm-text-dim)", marginBottom: 4 }}>Try:</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {SUGGESTIONS.map((s) => (
+                <button
+                  key={s}
+                  onClick={() => { setInput(s); inputRef.current?.focus(); }}
+                  style={{
+                    fontSize: 10, padding: "2px 8px", borderRadius: 4,
+                    background: "var(--lm-surface)", border: "1px solid var(--lm-border)",
+                    color: "var(--lm-text-dim)", cursor: "pointer",
+                    fontFamily: "'JetBrains Mono', monospace",
+                  }}
+                >{s}</button>
+              ))}
+            </div>
           </div>
         )}
         {entries.map((entry) => (
@@ -141,10 +196,22 @@ export function CliSection() {
               <span style={{ color: "var(--lm-amber)", userSelect: "none", flexShrink: 0 }}>
                 pi@lumi ~$
               </span>
-              <span style={{ color: "var(--lm-text)" }}>{entry.cmd}</span>
-              <span style={{ marginLeft: "auto", fontSize: 9, color: "var(--lm-text-muted)", flexShrink: 0 }}>
+              <span style={{ color: "var(--lm-text)", flex: 1, overflowWrap: "anywhere" }}>{entry.cmd}</span>
+              <span style={{ fontSize: 9, color: "var(--lm-text-muted)", flexShrink: 0 }}>
                 {entry.ts}
               </span>
+              {(entry.stdout || entry.stderr) && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); copyEntry(entry); }}
+                  title="Copy output"
+                  style={{
+                    fontSize: 9, padding: "1px 6px", borderRadius: 4,
+                    background: "var(--lm-surface)", border: "1px solid var(--lm-border)",
+                    color: copiedId === entry.id ? "var(--lm-green)" : "var(--lm-text-muted)",
+                    cursor: "pointer", flexShrink: 0, lineHeight: 1.4,
+                  }}
+                >{copiedId === entry.id ? "✓" : "⎘"}</button>
+              )}
             </div>
             {/* Running indicator */}
             {entry.exitCode === null && (
@@ -153,7 +220,7 @@ export function CliSection() {
             {/* Stdout */}
             {entry.stdout && (
               <pre style={{
-                margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-all",
+                margin: 0, whiteSpace: "pre-wrap", overflowWrap: "anywhere",
                 color: "var(--lm-text-dim)", fontSize: 11,
               }}>
                 {entry.stdout}
@@ -162,16 +229,19 @@ export function CliSection() {
             {/* Stderr */}
             {entry.stderr && (
               <pre style={{
-                margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-all",
+                margin: 0, whiteSpace: "pre-wrap", overflowWrap: "anywhere",
                 color: "var(--lm-red)", fontSize: 11,
               }}>
                 {entry.stderr}
               </pre>
             )}
-            {/* Non-zero exit */}
-            {entry.exitCode !== null && entry.exitCode !== 0 && (
-              <div style={{ fontSize: 9, color: "var(--lm-red)", marginTop: 2 }}>
-                exit {entry.exitCode}
+            {/* Exit status — green tick when 0, red code otherwise. Helps confirm success. */}
+            {entry.exitCode !== null && (
+              <div style={{
+                fontSize: 9, marginTop: 2,
+                color: entry.exitCode === 0 ? "var(--lm-green)" : "var(--lm-red)",
+              }}>
+                {entry.exitCode === 0 ? "✓ exit 0" : `✗ exit ${entry.exitCode}`}
               </div>
             )}
           </div>
