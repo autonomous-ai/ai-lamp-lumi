@@ -1457,6 +1457,13 @@ export function turnIO(turn: Turn): { input: string; output: string; hwOutput: s
       const d = ev.detail as Record<string, any> | undefined;
       output = d?.message ?? ev.summary ?? "";
     }
+    // Slash command success: state:"final" with payload but no lifecycle.
+    // Backend persists the message in chat_final_ok so this path doesn't
+    // depend on SSE chat_response (which may not be replayed for old turns).
+    if (!output && sameRun && ev.type === "flow_event" && ev.detail?.node === "chat_final_ok") {
+      const d = ev.detail as Record<string, any> | undefined;
+      output = d?.message ?? "";
+    }
     // Detect no_reply from flow event (persisted in JSONL, unlike SSE chat_response)
     if (!output && sameRun && ev.type === "flow_event" && ev.detail?.node === "no_reply") {
       output = "[no reply]";
