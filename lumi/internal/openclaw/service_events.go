@@ -8,10 +8,8 @@ import (
 
 	"go-lamp.autonomous.ai/domain"
 	"go-lamp.autonomous.ai/lib/flow"
-	"go-lamp.autonomous.ai/lib/i18n"
 	"go-lamp.autonomous.ai/lib/mood"
-	"go-lamp.autonomous.ai/lib/posture"
-	"go-lamp.autonomous.ai/lib/skillcontext"
+	"go-lamp.autonomous.ai/lib/sensingmsg"
 )
 
 // pendingEvent is a sensing event buffered while the agent was busy.
@@ -198,85 +196,10 @@ func (s *Service) drainPendingEvents() {
 		}
 		turnStart := flow.Start("sensing_input", startPayload, runID)
 
-		var msg string
-		if ev.eventType == "voice" || ev.eventType == "voice_command" {
-			// Mirror the direct sensing handler path: `[user]` for both wake-
-			// word voice and ambient voice (so AGENTS.md batched-turn user
-			// priority rule fires either way). Ambient voice keeps a
-			// secondary `[ambient]` token so voice/SKILL.md's overheard-audio
-			// mute guard still applies. See handler.go for the full rationale.
-			prefix := "[user] "
-			if ev.eventType == "voice" {
-				prefix = "[user] [ambient] "
-			}
-			msg = domain.AppendEnrollNudge(prefix + ev.msg)
-		} else if ev.eventType == "web_chat" {
-			// Raw text from the monitor — no enroll nudge, no [sensing:*] prefix.
-			// TTS is suppressed via MarkWebChatRun (already called at queue time).
-			// `[user]` mirrors voice_command — direct human input, top priority.
-			// Slash commands (`/status`, `/think`, …) skip the prefix so the
-			// agent's command router still sees the literal leading slash.
-			if strings.HasPrefix(ev.msg, "/") {
-				msg = ev.msg
-			} else {
-				msg = "[user] " + ev.msg
-			}
-		} else {
-			// motion.activity / emotion.detected use domain-specific prefixes
-			// to avoid triggering SOUL.md's "[sensing:*] → load sensing/SKILL.md"
-			// rule (those events have dedicated handler skills).
-			switch ev.eventType {
-			case "motion.activity":
-				msg = "[activity] " + ev.msg
-			case "emotion.detected":
-				msg = "[emotion] " + ev.msg
-			case "speech_emotion.detected":
-				msg = "[speech_emotion] " + ev.msg
-			case "pose.ergo_risk":
-				msg = "[posture] " + ev.msg
-			default:
-				msg = "[sensing:" + ev.eventType + "] " + ev.msg
-			}
-			// Reply-hygiene rules live inside the respective SKILL.md files.
-			switch ev.eventType {
-			case "presence.leave", "presence.away":
-				msg += "\n[No crons to cancel. NO_REPLY unless worth saying.]"
-			case "motion.activity":
-				msg += "\n[context: current_user=" + ev.currentUser + "]"
-				msg += skillcontext.BuildUserContext(ev.currentUser)
-				// See sensing handler: pre-fetch wellbeing/SKILL.md reads.
-				msg += skillcontext.BuildWellbeingContext(ev.currentUser)
-			case "emotion.detected", "speech_emotion.detected":
-				msg += "\n[context: current_user=" + ev.currentUser + "]"
-				msg += skillcontext.BuildUserContext(ev.currentUser)
-				// See sensing handler: pre-fetch emotion pipeline reads.
-				// Same context block serves both face and voice — the mapping
-				// covers both label vocabularies and the router rules are
-				// identical. The [speech_emotion] vs [emotion] prefix above
-				// tells the skill which source to log on the mood signal row
-				// (source=voice vs source=camera).
-				msg += skillcontext.BuildEmotionContext(skillcontext.ExtractDetectedEmotion(ev.msg), ev.currentUser)
-			case "pose.ergo_risk":
-				msg += "\n[context: current_user=" + ev.currentUser + "]"
-				msg += skillcontext.BuildUserContext(ev.currentUser)
-				pev := skillcontext.ParsePostureMessage(ev.msg)
-				// Build context BEFORE logging the alert — see sensing handler
-				// for the rationale (avoid self-reference in trend / is_repeated).
-				msg += "\n[posture_context: " + skillcontext.BuildPostureContext(ev.currentUser, pev) + "]"
-				if pev.Score > 0 {
-					posture.LogAlert(ev.currentUser, posture.AlertExtras{
-						Score:      pev.Score,
-						Risk:       pev.Risk,
-						LeftScore:  pev.LeftScore,
-						RightScore: pev.RightScore,
-					})
-				}
-			}
-			// Mirrors the direct sensing handler — see handler.go for why
-			// sensor turns need an explicit current_language tag. Voice/
-			// web_chat branches above already carry user text and skip it.
-			msg += i18n.LangContextTag()
-		}
+		// Build the outgoing message via the shared helper so the drain path
+		// stays identical to the live sensing handler. Guard tag is always ""
+		// here — guard state isn't preserved across the queue.
+		msg := sensingmsg.Build(ev.eventType, ev.msg, ev.currentUser, "")
 		// Strip [snapshot: ...] markers from the outgoing LLM message — matches the
 		// behaviour of the direct PostEvent path (sensing handler). The full text with
 		// snapshot paths still reaches the sensing_input JSONL via startPayload above,

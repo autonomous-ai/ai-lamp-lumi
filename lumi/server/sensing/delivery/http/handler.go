@@ -28,7 +28,7 @@ import (
 	"go-lamp.autonomous.ai/lib/mood"
 	"go-lamp.autonomous.ai/lib/musicsuggestion"
 	"go-lamp.autonomous.ai/lib/posture"
-	"go-lamp.autonomous.ai/lib/skillcontext"
+	"go-lamp.autonomous.ai/lib/sensingmsg"
 	"go-lamp.autonomous.ai/lib/usercanon"
 	"go-lamp.autonomous.ai/lib/wellbeing"
 	"go-lamp.autonomous.ai/server/config"
@@ -290,158 +290,23 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 	// between SetTrace() and Start()).
 	turnStart := flow.Start("sensing_input", startPayload, runID)
 
-	var msg string
-	if req.Type == "voice_command" {
-		// Wake word confirmed — agent always responds conversationally.
-		// `[user]` prefix marks this as direct human input so SOUL/AGENTS.md
-		// prioritises answering it when steer mode batches a voice turn with
-		// concurrent passive sensing (motion/emotion/ambient).
-		msg = domain.AppendEnrollNudge("[user] " + req.Message)
-	} else if req.Type == "voice" {
-		// Ambient speech — no wake word. Combined `[user] [ambient]` prefix:
-		//   - `[user]` lifts overheard voice to the same priority as wake-word
-		//     voice in batched turns (chosen 2026-05-12: lamp errs on the side
-		//     of responding instead of letting passive sensing batch-steal the
-		//     turn — user explicitly preferred this even at the cost of
-		//     potentially interrupting person-to-person conversation).
-		//   - `[ambient]` stays as a secondary marker so voice/SKILL.md's
-		//     ambient guard (mute words, fragment guard) still applies and
-		//     Lumi doesn't fire destructive `/voice/mute` actions from
-		//     overheard fragments. voice/SKILL.md checks for the literal
-		//     token `[ambient]` (not startsWith) so the combined prefix works.
-		msg = domain.AppendEnrollNudge("[user] [ambient] " + req.Message)
-	} else if isWebChat {
-		// Web monitor chat — typed text, forwarded raw. No enroll nudge (no
-		// camera/face context), no [sensing:*] prefix (not a sensor signal),
-		// no ambient/guard tagging (TTS suppressed via MarkWebChatRun above).
-		// `[user]` prefix mirrors voice_command — direct human input, top
-		// priority in batched turns. Skip the prefix for slash commands
-		// (`/status`, `/think`, …) so the agent's command router still sees
-		// the literal leading slash.
-		if strings.HasPrefix(req.Message, "/") {
-			msg = req.Message
-		} else {
-			msg = "[user] " + req.Message
-		}
-	} else if guardActive {
-		// Guard mode: tag so the system broadcasts the response via Telegram.
-		// Include custom instruction if the owner provided one when enabling guard mode.
-		guardTag := "[sensing:" + req.Type + "][guard-active]"
+	// Resolve user attribution: prefer the request payload, fall back to mood.
+	// The drain path (service_events.go) snapshots this at queue time; here we
+	// resolve fresh per request.
+	currentUser := req.CurrentUser
+	if currentUser == "" {
+		currentUser = mood.CurrentUser()
+	}
+	// Guard tag is only built on the live path — the queue path always passes
+	// "" because guard state isn't preserved across the queue.
+	var guardTag string
+	if guardActive {
+		guardTag = "[sensing:" + req.Type + "][guard-active]"
 		if inst := h.config.GuardInstruction; inst != "" {
 			guardTag += "[guard-instruction: " + inst + "]"
 		}
-		msg = guardTag + " " + req.Message
-	} else {
-		// Passive sensing. motion.activity and emotion.detected use domain-specific
-		// prefixes so SOUL.md's "[sensing:*] → load sensing/SKILL.md" rule doesn't
-		// force sensing skill (~100 lines) into context when the event has a
-		// dedicated handler skill (wellbeing / user-emotion-detection + music-suggestion).
-		switch req.Type {
-		case "motion.activity":
-			msg = "[activity] " + req.Message
-		case "emotion.detected":
-			msg = "[emotion] " + req.Message
-		case "speech_emotion.detected":
-			msg = "[speech_emotion] " + req.Message
-		case "pose.ergo_risk":
-			msg = "[posture] " + req.Message
-		default:
-			msg = "[sensing:" + req.Type + "] " + req.Message
-		}
-		// Reply-hygiene rules live inside the respective SKILL.md files.
-		switch req.Type {
-		case "presence.enter":
-			// Pre-fetch how long since the user was last seen so sensing/SKILL.md
-			// can swap to a "return after long absence" greeting without a tool
-			// turn. BuildPresenceContext skips strangers (unknown) — the
-			// existing curious/scanning greeting still applies to them.
-			currentUser := req.CurrentUser
-			if currentUser == "" {
-				currentUser = mood.CurrentUser()
-			}
-			if currentUser != "" {
-				msg += skillcontext.BuildPresenceContext(currentUser)
-			}
-		case "presence.leave", "presence.away":
-			msg += "\n[No crons to cancel. NO_REPLY unless worth saying.]"
-		case "touch.head_pat":
-			// LeLamp already played a random pet-response phrase locally
-			// (button_actions.head_pat_action). The agent only records the
-			// moment for memory/personality continuity — speaking again
-			// would double up.
-			msg += "\n[NO_REPLY unless worth saying — phrase already spoken locally.]"
-		case "motion.activity":
-			// Prefer the value LeLamp shipped in this request payload
-			// over mood.CurrentUser(); they should match (mood was just
-			// synced above) but sourcing from the payload makes the
-			// attribution traceable to the event that produced it.
-			currentUser := req.CurrentUser
-			if currentUser == "" {
-				currentUser = mood.CurrentUser()
-			}
-			if currentUser == "" {
-				currentUser = "unknown"
-			}
-			msg += "\n[context: current_user=" + currentUser + "]"
-			msg += skillcontext.BuildUserContext(currentUser)
-			// Pre-fetch the three reads that wellbeing/SKILL.md would otherwise
-			// fire as its own tool turn (history + patterns.json + days count).
-			// Saves ~9s LLM-think on the "plan reads" pass. SKILL.md keeps a
-			// fallback bash batch when this block is empty (pre-fetch failure).
-			msg += skillcontext.BuildWellbeingContext(currentUser)
-		case "emotion.detected", "speech_emotion.detected":
-			currentUser := req.CurrentUser
-			if currentUser == "" {
-				currentUser = mood.CurrentUser()
-			}
-			if currentUser == "" {
-				currentUser = "unknown"
-			}
-			msg += "\n[context: current_user=" + currentUser + "]"
-			msg += skillcontext.BuildUserContext(currentUser)
-			// Pre-fetch the reads that the emotion pipeline (mood signal/
-			// decision + router gating in user-emotion-detection + music-
-			// suggestion genre lookup) would otherwise issue. SKILL.md keeps a
-			// fallback bash batch when this block is missing (pre-fetch fail).
-			// Same context block serves both modalities — the mapping covers
-			// face FER labels (Fear/Surprise/Disgust) and voice emotion2vec
-			// labels (Fearful/Surprised/Disgusted); the [speech_emotion] vs
-			// [emotion] prefix on the message tells the skill which source to
-			// log on the mood signal row (source=voice vs source=camera).
-			msg += skillcontext.BuildEmotionContext(skillcontext.ExtractDetectedEmotion(req.Message), currentUser)
-		case "pose.ergo_risk":
-			currentUser := req.CurrentUser
-			if currentUser == "" {
-				currentUser = mood.CurrentUser()
-			}
-			if currentUser == "" {
-				currentUser = "unknown"
-			}
-			msg += "\n[context: current_user=" + currentUser + "]"
-			msg += skillcontext.BuildUserContext(currentUser)
-			ev := skillcontext.ParsePostureMessage(req.Message)
-			// Build the slim context block BEFORE logging the alert — otherwise
-			// computeTrend / isRepeatedEpisode would scan the just-written row
-			// and compare it against itself (trend always "stable", is_repeated
-			// always true). Skill writes its nudge / praise row later via the
-			// /posture/log HW marker; the alert row goes in after the context.
-			msg += "\n[posture_context: " + skillcontext.BuildPostureContext(currentUser, ev) + "]"
-			if ev.Score > 0 {
-				posture.LogAlert(currentUser, posture.AlertExtras{
-					Score:      ev.Score,
-					Risk:       ev.Risk,
-					LeftScore:  ev.LeftScore,
-					RightScore: ev.RightScore,
-				})
-			}
-		}
-		// Inject the device's configured STT/TTS locale once per passive-sensing
-		// turn. Sensor events (enter/leave/activity/emotion/pose) carry no user
-		// text, so without this tag Lumi has no language signal and SOUL.md's
-		// "reply in owner's current-turn language" rule defaults to English.
-		// Voice/web_chat above already carry user text — they don't need it.
-		msg += i18n.LangContextTag()
 	}
+	msg := sensingmsg.Build(req.Type, req.Message, currentUser, guardTag)
 
 	// Strip [snapshot: ...] markers from the outgoing LLM message. The full text
 	// (with snapshot paths) remains in the sensing_input JSONL via startPayload so
