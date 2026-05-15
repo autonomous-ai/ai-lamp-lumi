@@ -315,8 +315,14 @@ func (h *SensingHandler) PostEvent(c *gin.Context) {
 		// camera/face context), no [sensing:*] prefix (not a sensor signal),
 		// no ambient/guard tagging (TTS suppressed via MarkWebChatRun above).
 		// `[user]` prefix mirrors voice_command — direct human input, top
-		// priority in batched turns.
-		msg = "[user] " + req.Message
+		// priority in batched turns. Skip the prefix for slash commands
+		// (`/status`, `/think`, …) so the agent's command router still sees
+		// the literal leading slash.
+		if strings.HasPrefix(req.Message, "/") {
+			msg = req.Message
+		} else {
+			msg = "[user] " + req.Message
+		}
 	} else if guardActive {
 		// Guard mode: tag so the system broadcasts the response via Telegram.
 		// Include custom instruction if the owner provided one when enabling guard mode.
