@@ -71,8 +71,12 @@ else:
     logger.warning("No PulseAudio runtime dir found — pactl calls will fail")
 
 
-def _pactl(args: list[str], timeout: float = 5.0) -> subprocess.CompletedProcess:
-    """Run pactl with the right env + identity to reach the per-user PA."""
+def _pactl(args: list[str], timeout: float = 10.0) -> subprocess.CompletedProcess:
+    """Run pactl with the right env + identity to reach the per-user PA.
+
+    Default timeout is generous (10s) because PulseAudio stalls noticeably
+    while a Bluetooth SCO link is being set up or torn down — short timeouts
+    here cause false 'no sink' errors during normal A2DP↔HFP transitions."""
     env = os.environ.copy()
     if _PULSE_RUNTIME_DIR:
         env["XDG_RUNTIME_DIR"] = _PULSE_RUNTIME_DIR

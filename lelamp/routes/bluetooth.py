@@ -142,12 +142,17 @@ def bt_active_set(req: ActiveRequest):
     if card:
         profiles = mgr.pa_card_profiles(card)
         if profiles.get("handsfree_head_unit", False):
-            if mgr.set_pa_card_profile(card, "handsfree_head_unit"):
-                # PulseAudio re-exposes sink/source on the next event loop tick;
-                # give it a beat before we query.
-                time.sleep(1.0)
+            mgr.set_pa_card_profile(card, "handsfree_head_unit")
 
-    pa_sink = mgr.pa_sink_for_mac(target)
+    # Poll for the sink to appear instead of a fixed sleep — PA exposes the
+    # bluez sink asynchronously after a profile switch / reconnect, and on
+    # a flaky BT chip it can take a few seconds. Up to ~8s.
+    pa_sink: Optional[str] = None
+    for _ in range(8):
+        pa_sink = mgr.pa_sink_for_mac(target)
+        if pa_sink:
+            break
+        time.sleep(1.0)
     if not pa_sink:
         raise HTTPException(
             503,
