@@ -77,6 +77,8 @@ async def pose_estimation_ws(websocket: WebSocket):
 
                     case _:
                         logger.warning("Unknown pose WS message type: %s", raw[:200])
+            except WebSocketDisconnect:
+                raise
             except Exception as e:
                 logger.exception("Error processing pose WS message")
                 await websocket.send_json({"error": str(e)})

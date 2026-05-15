@@ -74,6 +74,8 @@ async def action_analysis_ws(websocket: WebSocket):
 
                     case _:
                         logger.warning("Unknown action WS message type: %s", raw[:200])
+            except WebSocketDisconnect:
+                raise
             except Exception as e:
                 logger.exception("Error processing action WS message")
                 await websocket.send_json({"error": str(e)})

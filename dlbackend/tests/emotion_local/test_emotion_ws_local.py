@@ -10,13 +10,15 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
-from protocols.utils.state import get_emotion_model, set_emotion_model
 from core.perception.emotion.constants import RESOURCES_DIR
 from core.perception.emotion.perception import EmotionPerception
 from core.perception.emotion.utils import create_emotion_recognizer
 from core.perception.face.predictors.yunet import YuNetFaceDetector
+from protocols.utils.state import get_emotion_model, set_emotion_model
 
-EMONET_EMOTIONS: list[str] = (RESOURCES_DIR / "emonet_8_classes.txt").read_text().strip().split("\n")
+EMONET_EMOTIONS: list[str] = (
+    (RESOURCES_DIR / "emonet_8_classes.txt").read_text().strip().split("\n")
+)
 
 TEST_API_KEY = "test-secret-key"
 os.environ["DL_API_KEY"] = TEST_API_KEY
@@ -108,8 +110,8 @@ class TestEmotionAnalysisWebSocket:
         with client.websocket_connect("/api/dl/emotion-analysis/ws", headers=AUTH_HEADERS) as ws:
             ws.send_text(json.dumps({"type": "frame", "task": "emotion", "frame_b64": frame_b64}))
             resp = ws.receive_json()
-            assert "emotions" in resp
-            assert isinstance(resp["emotions"], list)
+            assert "detections" in resp
+            assert isinstance(resp["detections"], list)
 
     def test_frame_with_face_returns_emotion_fields(self, client):
         """When a face is detected, each detection has the expected fields."""
@@ -117,8 +119,8 @@ class TestEmotionAnalysisWebSocket:
         with client.websocket_connect("/api/dl/emotion-analysis/ws", headers=AUTH_HEADERS) as ws:
             ws.send_text(json.dumps({"type": "frame", "task": "emotion", "frame_b64": frame_b64}))
             resp = ws.receive_json()
-            assert "emotions" in resp
-            for det in resp["emotions"]:
+            assert "detections" in resp
+            for det in resp["detections"]:
                 assert "emotion" in det
                 assert "confidence" in det
                 assert "face_confidence" in det
@@ -138,7 +140,7 @@ class TestEmotionAnalysisWebSocket:
                     json.dumps({"type": "frame", "task": "emotion", "frame_b64": _make_frame_b64()})
                 )
                 resp = ws.receive_json()
-                assert "emotions" in resp
+                assert "detections" in resp
 
     def test_config_update_threshold(self, client):
         with client.websocket_connect("/api/dl/emotion-analysis/ws", headers=AUTH_HEADERS) as ws:
@@ -159,7 +161,7 @@ class TestEmotionAnalysisWebSocket:
                 )
             )
             resp = ws.receive_json()
-            assert resp["emotions"] == []
+            assert resp["detections"] == []
 
     def test_invalid_json(self, client):
         with client.websocket_connect("/api/dl/emotion-analysis/ws", headers=AUTH_HEADERS) as ws:
@@ -227,7 +229,7 @@ class TestEmotionAnalysisWebSocket:
                 json.dumps({"type": "frame", "task": "emotion", "frame_b64": _make_frame_b64()})
             )
             resp = ws.receive_json()
-            assert "emotions" in resp
+            assert "detections" in resp
 
     def test_ws_without_api_key_rejected(self, client):
         with pytest.raises(Exception):
