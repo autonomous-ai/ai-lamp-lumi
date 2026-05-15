@@ -58,13 +58,16 @@ const chartScaleDefaults = {
   ticks: { color: CHART_COLORS.tickColor, font: { size: 10 } },
 };
 
+// Version palette chosen to NOT collide with state colors (green/amber/red)
+// used elsewhere in the UI — these are identity slots for chart series, not
+// signals of "good/bad". Order: sky → indigo → violet → fuchsia → pink → orange.
 const VERSION_COLORS = [
-  { border: "rgba(245,158,11,0.85)", bg: "rgba(245,158,11,0.15)" },
-  { border: "rgba(96,165,250,0.85)",  bg: "rgba(96,165,250,0.15)" },
-  { border: "rgba(168,85,247,0.85)", bg: "rgba(168,85,247,0.15)" },
-  { border: "rgba(52,211,153,0.85)", bg: "rgba(52,211,153,0.15)" },
-  { border: "rgba(45,212,191,0.85)", bg: "rgba(45,212,191,0.15)" },
-  { border: "rgba(248,113,113,0.85)", bg: "rgba(248,113,113,0.15)" },
+  { border: "rgba(56,189,248,0.85)",  bg: "rgba(56,189,248,0.15)"  }, // sky
+  { border: "rgba(129,140,248,0.85)", bg: "rgba(129,140,248,0.15)" }, // indigo
+  { border: "rgba(167,139,250,0.85)", bg: "rgba(167,139,250,0.15)" }, // violet
+  { border: "rgba(232,121,249,0.85)", bg: "rgba(232,121,249,0.15)" }, // fuchsia
+  { border: "rgba(244,114,182,0.85)", bg: "rgba(244,114,182,0.15)" }, // pink
+  { border: "rgba(251,146,60,0.85)",  bg: "rgba(251,146,60,0.15)"  }, // orange
 ];
 
 function vColor(i: number) {

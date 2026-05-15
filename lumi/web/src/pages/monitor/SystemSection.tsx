@@ -73,13 +73,23 @@ function historyChart(data: number[], color: string, label: string) {
   };
 }
 
-// Temperature tier: matches Pi thermal behavior (throttle ~80°C, warning ~70°C).
-// Scale uses 80°C as full-circle so the ring visually reaches red as it fills.
+// Temperature tier — absolute °C, follows Pi thermal behavior.
+// Standard state-tier mapping: OK / warn / crit at 60 / 75°C.
 const TEMP_MAX = 80;
 function tempColor(t: number): string {
-  if (t > 70) return "var(--lm-red)";
+  if (t > 75) return "var(--lm-red)";
   if (t > 60) return "var(--lm-amber)";
-  return "var(--lm-teal)";
+  return "var(--lm-teal)"; // identity color for Temp metric
+}
+
+// Percentage-based metric tier — same thresholds across Disk/RAM/Swap/per-core
+// so a glance at any chart reads with the same convention. `identityColor` is
+// what the metric shows when it's "fine" (its brand color); warnings escalate
+// to amber and crits to red regardless of the metric.
+function pctColor(pct: number, identityColor: string): string {
+  if (pct > 85) return "var(--lm-red)";
+  if (pct > 60) return "var(--lm-amber)";
+  return identityColor;
 }
 
 export function SystemSection({
@@ -98,7 +108,7 @@ export function SystemSection({
 
   if (!sys) return <div style={{ color: "var(--lm-text-muted)", padding: 20 }}>Loading system data…</div>;
 
-  const diskColor = (sys.diskPercent ?? 0) > 90 ? "var(--lm-red)" : (sys.diskPercent ?? 0) > 75 ? "var(--lm-amber)" : "var(--lm-teal)";
+  const diskColor = pctColor(sys.diskPercent ?? 0, "var(--lm-teal)");
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -163,7 +173,7 @@ export function SystemSection({
                 value={sys.swapPercent}
                 label="SWAP"
                 detail={`${sys.swapPercent.toFixed(0)}%`}
-                color={sys.swapPercent > 80 ? "var(--lm-red)" : sys.swapPercent > 50 ? "var(--lm-amber)" : "var(--lm-green)"}
+                color={pctColor(sys.swapPercent, "var(--lm-purple)")}
                 size={80}
               />
             )}
@@ -244,9 +254,12 @@ export function SystemSection({
 
 // CoreStrip renders per-core load as small vertical bars side by side —
 // the compact "CPU history" look from system monitors. Hover for exact %.
+// Uses pure state-tier colors (green/amber/red) since the strip's whole
+// purpose is to surface which core is hot — identity-amber for all cores
+// would defeat the visual signal.
 function CoreStrip({ values }: { values: number[] }) {
   const coreColor = (p: number) =>
-    p > 85 ? "var(--lm-red)" : p > 60 ? "var(--lm-amber)" : "var(--lm-teal)";
+    p > 85 ? "var(--lm-red)" : p > 60 ? "var(--lm-amber)" : "var(--lm-green)";
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, width: "100%" }}>
       <div style={{

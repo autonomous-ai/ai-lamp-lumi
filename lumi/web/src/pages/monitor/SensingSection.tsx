@@ -87,9 +87,11 @@ function presenceColor(state: string): string {
 }
 
 // Light tier heuristic — sensor returns raw 0-1000ish; rough buckets for UX.
+// Color progression dim → bright: muted → blue → teal → green. Amber stays
+// reserved for state-warning so it isn't used here.
 function lightTier(level: number): { label: string; color: string } {
-  if (level < 30)  return { label: "Dark",   color: "var(--lm-blue)" };
-  if (level < 200) return { label: "Dim",    color: "var(--lm-amber)" };
+  if (level < 30)  return { label: "Dark",   color: "var(--lm-text-muted)" };
+  if (level < 200) return { label: "Dim",    color: "var(--lm-blue)" };
   if (level < 600) return { label: "Bright", color: "var(--lm-teal)" };
   return                  { label: "Sunlit", color: "var(--lm-green)" };
 }
