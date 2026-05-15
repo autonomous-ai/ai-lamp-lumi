@@ -4,7 +4,7 @@ import {
   Pin, ChevronRight, Sparkles, Plus, Trash2, History,
   Wrench, Lightbulb, Cog, Music, Palette, Search, Smile, ChevronDown,
 } from "lucide-react";
-import { API } from "./types";
+import { API, AGENT_API } from "./types";
 import type { DisplayEvent, MonitorEvent } from "./types";
 
 // ─── Markdown ───────────────────────────────────────────────────────────────
@@ -469,6 +469,27 @@ export function ChatSection({ events, isActive }: Props) {
   // active row — keeps the sidebar list visually quiet at rest.
   const [hoveredConvoId, setHoveredConvoId] = useState<string | null>(null);
 
+  // Resolve the active model name from openclaw.json so we can label each
+  // assistant message ("claude-haiku-4-5-20251001" → "haiku-4-5"). Fetched
+  // lazily once per mount — the model rarely changes between turns.
+  const [modelLabel, setModelLabel] = useState<string>("");
+  useEffect(() => {
+    fetch(`${AGENT_API}/config-json`)
+      .then((r) => r.json())
+      .then((res) => {
+        const primary = res?.data?.agents?.defaults?.model?.primary;
+        if (typeof primary !== "string") return;
+        // primary looks like "<provider>/<model-id>" — strip provider and
+        // collapse the verbose Anthropic version suffix so it fits the badge.
+        const raw = primary.includes("/") ? primary.split("/").pop() ?? primary : primary;
+        const compact = raw
+          .replace(/^claude-/i, "")
+          .replace(/-\d{8}$/, ""); // trailing date suffix like -20251001
+        setModelLabel(compact);
+      })
+      .catch(() => {});
+  }, []);
+
   // Shared compact icon-button style for the per-row pin/delete actions.
   const hoverIconBtnStyle = (color: string): React.CSSProperties => ({
     display: "inline-flex", alignItems: "center", justifyContent: "center",
@@ -642,8 +663,37 @@ export function ChatSection({ events, isActive }: Props) {
         // Tool call chips. Dedup key on iconKind+label so the start + result
         // phases of the same tool merge into a single chip — the latest event
         // wins so `result`'s completion flag overwrites the placeholder.
-        if (TOOL_EVENT_TYPES.has(ev.type)) {
-          const chip = parseToolChip({ type: ev.type, summary: ev.summary, id: ev.id, detail: ev.detail, phase: ev.phase });
+        //
+        // Server emits tool events in two shapes:
+        //   1. ev.type === "tool_call" (live monitor bus path)
+        //   2. ev.type === "flow_event" with detail.node === "tool_call"
+        //      (re-played from flow JSONL on reconnect)
+        // We accept both — previously the chips were missed half the time
+        // because only shape #1 matched, which is why chips appeared "lúc có
+        // lúc không" depending on whether the user was watching live or
+        // reconnected mid-turn.
+        const detailNode = (ev.detail as Record<string, any> | undefined)?.node;
+        const isToolCall =
+          TOOL_EVENT_TYPES.has(ev.type) ||
+          (ev.type === "flow_event" && detailNode && (
+            detailNode === "tool_call" ||
+            detailNode === "hw_emotion" ||
+            detailNode === "hw_led" ||
+            detailNode === "hw_audio" ||
+            detailNode === "hw_servo" ||
+            detailNode === "led_set" ||
+            detailNode === "led_off"
+          ));
+        if (isToolCall) {
+          // Normalize flow_event into the same shape parseToolChip expects.
+          const normalizedType = TOOL_EVENT_TYPES.has(ev.type) ? ev.type : detailNode;
+          const chip = parseToolChip({
+            type: normalizedType,
+            summary: ev.summary,
+            id: ev.id,
+            detail: ev.detail,
+            phase: ev.phase ?? (ev.detail as any)?.data?.phase,
+          });
           if (chip) {
             const key = chip.iconKind + ":" + chip.label;
             const existing = toolChipsRef.current.get(key);
@@ -662,16 +712,24 @@ export function ChatSection({ events, isActive }: Props) {
           }
         }
 
-        // Token usage — save for attaching to message on finalize
-        if (ev.type === "token_usage") {
-          const d = ev.detail as Record<string, string> | undefined;
-          if (d) {
+        // Token usage — save for attaching to message on finalize.
+        // Accept both shapes: direct `token_usage` event AND flow_event with
+        // node === "token_usage" (replayed path). Also try `.data.*` nesting
+        // since flow_event wraps the payload one level deeper.
+        const isTokenUsage =
+          ev.type === "token_usage" ||
+          (ev.type === "flow_event" && (ev.detail as any)?.node === "token_usage");
+        if (isTokenUsage) {
+          const d = ev.detail as Record<string, any> | undefined;
+          const src = (d?.data && typeof d.data === "object") ? d.data : d;
+          if (src) {
+            const num = (v: any) => typeof v === "number" ? v : parseInt(String(v ?? "0"), 10);
             tokenUsageRef.current = {
-              input: parseInt(d.input_tokens ?? "0", 10),
-              output: parseInt(d.output_tokens ?? "0", 10),
-              cacheRead: parseInt(d.cache_read_tokens ?? "0", 10) || undefined,
-              cacheWrite: parseInt(d.cache_write_tokens ?? "0", 10) || undefined,
-              total: parseInt(d.total_tokens ?? "0", 10),
+              input: num(src.input_tokens ?? src.input),
+              output: num(src.output_tokens ?? src.output),
+              cacheRead: num(src.cache_read_tokens ?? src.cache_read) || undefined,
+              cacheWrite: num(src.cache_write_tokens ?? src.cache_write) || undefined,
+              total: num(src.total_tokens ?? src.total),
             };
           }
           return;
@@ -1639,13 +1697,7 @@ export function ChatSection({ events, isActive }: Props) {
                       title="Retry"
                     ><RotateCcw size={11} /> retry</button>
                   )}
-                  {msg.tokenUsage && msg.role === "lumi" && (
-                    <span style={{ fontSize: 9, color: "var(--lm-text-muted)", opacity: 0.5 }}
-                      title={`in: ${msg.tokenUsage.input} / out: ${msg.tokenUsage.output}${msg.tokenUsage.cacheRead ? ` / cache read: ${msg.tokenUsage.cacheRead}` : ""}${msg.tokenUsage.cacheWrite ? ` / cache write: ${msg.tokenUsage.cacheWrite}` : ""} / total: ${msg.tokenUsage.total}`}
-                    >
-                      {msg.tokenUsage.input}↓ {msg.tokenUsage.output}↑
-                    </span>
-                  )}
+                  {msg.tokenUsage && msg.role === "lumi" && <UsageBadge usage={msg.tokenUsage} model={modelLabel} />}
                 </div>
               </div>
             </div>
@@ -1799,6 +1851,54 @@ export function ChatSection({ events, isActive }: Props) {
         </div>
       </div>
     </div>
+  );
+}
+
+// ─── Usage Badge ─────────────────────────────────────────────────────────────
+
+// Claude 4.x context window — used to derive a "% ctx" indicator. If you
+// switch models you can bump this constant or fetch it from openclaw config.
+const CONTEXT_WINDOW = 200_000;
+
+function formatTokens(n: number): string {
+  if (n < 1000) return String(n);
+  const k = n / 1000;
+  return k >= 100 ? `${k.toFixed(0)}k` : `${k.toFixed(1)}k`;
+}
+
+// Compact one-line usage strip under each Lumi message — mirrors the style
+// of agent CLIs: ↑input  ↓output  R<cacheRead>  N% ctx  model.
+function UsageBadge({ usage, model }: { usage: NonNullable<ChatMessage["tokenUsage"]>; model?: string }) {
+  const ctxPct = usage.total > 0 ? Math.min(100, (usage.total / CONTEXT_WINDOW) * 100) : 0;
+  return (
+    <span
+      style={{
+        fontSize: 9.5, color: "var(--lm-text-muted)",
+        fontFamily: "monospace", opacity: 0.75,
+        display: "inline-flex", gap: 10, alignItems: "center",
+        whiteSpace: "nowrap",
+      }}
+      title={
+        `Input: ${usage.input.toLocaleString()}\n` +
+        `Output: ${usage.output.toLocaleString()}\n` +
+        (usage.cacheRead ? `Cache read: ${usage.cacheRead.toLocaleString()}\n` : "") +
+        (usage.cacheWrite ? `Cache write: ${usage.cacheWrite.toLocaleString()}\n` : "") +
+        `Total: ${usage.total.toLocaleString()}\n` +
+        `Context: ${ctxPct.toFixed(1)}% of ${CONTEXT_WINDOW.toLocaleString()}`
+      }
+    >
+      <span>↑{formatTokens(usage.input)}</span>
+      <span>↓{formatTokens(usage.output)}</span>
+      {usage.cacheRead != null && usage.cacheRead > 0 && (
+        <span>R{formatTokens(usage.cacheRead)}</span>
+      )}
+      <span style={{ color: ctxPct > 80 ? "var(--lm-red)" : ctxPct > 60 ? "var(--lm-amber)" : "var(--lm-text-muted)" }}>
+        {ctxPct.toFixed(0)}% ctx
+      </span>
+      {model && (
+        <span style={{ color: "var(--lm-text-dim)" }}>{model}</span>
+      )}
+    </span>
   );
 }
 

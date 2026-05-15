@@ -1,5 +1,10 @@
 export const API = "/api";
 export const HW  = "/hw";
+// Agent gateway base path. Currently hardcoded to "/api/openclaw" but we read
+// it through this constant so swapping providers (e.g. another runtime) is a
+// one-line change here. Existing callers still write `${API}/openclaw/…`
+// inline — migrate them as you touch each file.
+export const AGENT_API = `${API}/openclaw`;
 export const HISTORY_LEN = 60;
 export const FLOW_EVENTS_MAX = 10000;
 
