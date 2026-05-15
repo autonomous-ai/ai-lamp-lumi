@@ -958,6 +958,9 @@ server {
   listen 80 default_server;
   root /usr/share/nginx/html/setup;
   index index.html;
+  # Monitor chat sends base64 attachments inside JSON; default 1 MB nginx
+  # limit 413s anything past ~700 KB raw. Match scripts/setup.sh.
+  client_max_body_size 20M;
   location / { try_files \$uri /index.html; }
   location /api/ {
     proxy_pass http://backend;
