@@ -415,6 +415,14 @@ func (s *Service) SetupNetwork(ssid string, password string) (bool, error) {
 	if ssid == "" {
 		return false, fmt.Errorf("ssid is required")
 	}
+	// 802.11 caps SSID at 32 bytes. Counted in bytes, not chars — 1 Chinese
+	// UTF-8 char = 3 bytes, so an SSID that "looks" short can still overflow.
+	// Without this check, wpa_supplicant silently rejects the config and the
+	// 60s polling loop returns a generic "no internet or SSID did not match"
+	// error that's nearly impossible to debug from the web UI.
+	if n := len(ssid); n > 32 {
+		return false, fmt.Errorf("ssid too long: %d bytes, max 32 (802.11 limit)", n)
+	}
 
 	// Fast path: re-running setup with the SAME ssid+password we're already
 	// connected to. connect-wifi rewrites wpa_supplicant.conf and restarts
