@@ -10,8 +10,12 @@ if [ -f "$PATTERNS" ] && [ $(( $(date +%s) - $(stat -c %Y "$PATTERNS") )) -lt 21
   cat "$PATTERNS"   # fresh < 6h — return existing, skip rebuild
   exit 0
 fi
-DAYS=$(ls /root/local/users/{name}/wellbeing/*.jsonl 2>/dev/null | wc -l)
-[ "$DAYS" -lt 3 ] && { echo "insufficient_data: $DAYS days"; exit 0; }
+# Eligibility: ≥3 days from EITHER source (wellbeing or posture) is enough to
+# rebuild the union pattern file. Each section internally skips if its source
+# is too sparse.
+WB=$(ls /root/local/users/{name}/wellbeing/*.jsonl 2>/dev/null | wc -l)
+PO=$(ls /root/local/users/{name}/posture/*.jsonl 2>/dev/null | wc -l)
+[ "$WB" -lt 3 ] && [ "$PO" -lt 3 ] && { echo "insufficient_data: wb=$WB po=$PO"; exit 0; }
 ```
 
 This makes Flow A idempotent and safe to invoke from `wellbeing/SKILL.md` on every nudge. Cost is one `stat` + integer compare on the hot path; only the cold path (missing or stale patterns, ≥3 days of data) runs the full multi-day read below.
@@ -99,6 +103,36 @@ This makes Flow A idempotent and safe to invoke from `wellbeing/SKILL.md` on eve
       "acceptance_rate": 0.8,
       "days_observed": 5
     }
+  ],
+  "posture_patterns": [
+    {
+      "peak_hour": 15,
+      "side_bias": "right",
+      "typical_risk_bucket": "medium",
+      "top_offenders": ["neck", "right_arm"],
+      "alerts_per_day": 6.0,
+      "days_observed": 7,
+      "strength": "strong"
+    }
   ]
 }
 ```
+
+## Posture patterns (Flow A — posture extension)
+
+Triggered from `posture/SKILL.md` when its context block sets `bootstrap_needed=true` on a nudge turn. Computes one `posture_patterns` entry per user (single object — posture has no per-action sub-categories like wellbeing).
+
+Inputs: `/root/local/users/{name}/posture/*.jsonl` rows where `action == "posture_alert"` (alert rows are the only ones with ergonomic-risk facts; nudge/praise rows are agent output).
+
+Steps:
+
+1. **Load multi-day data.** Read up to last 14 daily files. `days_observed` = number of distinct dates with at least one alert row.
+2. **Skip if too sparse.** Require ≥3 days with alerts AND ≥6 total alert rows. Otherwise emit `posture_patterns: []` (insufficient data — no pattern).
+3. **peak_hour** = the hour 0..23 with the most alert rows across the window. Ties → earlier hour.
+4. **side_bias** = compare summed `left_score` vs summed `right_score` across all alerts. Diff ≥ 1.5× the smaller side → name the dominant side; otherwise `"none"`.
+5. **typical_risk_bucket** = mode of `risk` field (`"medium"` vs `"high"`).
+6. **top_offenders** (best-effort): not available from row schema (alert rows store only `score`, `risk`, `left_score`, `right_score` — sub-region scores live in the original event message, not persisted). Leave as `[]` until lelamp side starts logging top offenders. Field exists for forward compatibility.
+7. **alerts_per_day** = round(total_alerts / days_observed, 1).
+8. **strength**: same table as wellbeing. Use `(days_with_alerts / days_observed)` as the frequency analog. `< 0.50` → skip pattern; `0.50–0.75` → moderate; `> 0.75` → strong.
+
+Skip non-alert posture rows (`nudge_posture`, `praise_posture`) — those are agent reactions, not user signal.

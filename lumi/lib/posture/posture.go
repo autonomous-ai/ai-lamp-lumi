@@ -2,7 +2,7 @@
 //
 // Stores rows produced by the posture coach: `posture_alert` from lelamp's
 // pose.ergo_risk events, plus agent-written `nudge_posture` / `praise_posture`
-// / `morning_recap_posture` / `evening_recap_posture` rows.
+// rows.
 //
 // Mirrors lib/mood structure (newer pattern than lib/wellbeing). Daily
 // JSONL files with 7-day retention.
@@ -47,19 +47,16 @@ type Event struct {
 	// Nudge-row fields (Action == ActionNudge).
 	NudgeLevel int    `json:"nudge_level,omitempty"` // 2..5
 
-	// Free-text — for nudge/praise/recap, this is the line Lumi spoke.
+	// Free-text — for nudge/praise, this is the line Lumi spoke.
 	Notes string `json:"notes,omitempty"`
 }
 
 // Action constants. Never invent new actions — the skill spec and timeline
 // readers rely on this fixed vocabulary.
 const (
-	ActionAlert        = "posture_alert"          // lelamp event captured by Lumi
-	ActionNudge        = "nudge_posture"          // agent spoke / fired servo / chime
-	ActionPraise       = "praise_posture"         // agent acknowledged a fix
-	ActionMorningRecap = "morning_recap_posture"  // cron-driven morning ritual
-	ActionEveningRecap = "evening_recap_posture"  // cron-driven evening ritual
-	ActionWeeklyRecap  = "weekly_recap_posture"   // Sunday-night arc
+	ActionAlert  = "posture_alert"  // lelamp event captured by Lumi
+	ActionNudge  = "nudge_posture"  // agent spoke / fired servo / chime
+	ActionPraise = "praise_posture" // agent acknowledged a fix
 )
 
 const (
@@ -142,12 +139,6 @@ func LogNudge(user string, level int, notes string) {
 func LogPraise(user, notes string) {
 	logSimple(user, ActionPraise, notes)
 }
-
-// LogMorningRecap / LogEveningRecap / LogWeeklyRecap append the ritual rows
-// that gate re-firing within their window.
-func LogMorningRecap(user, notes string) { logSimple(user, ActionMorningRecap, notes) }
-func LogEveningRecap(user, notes string) { logSimple(user, ActionEveningRecap, notes) }
-func LogWeeklyRecap(user, notes string)  { logSimple(user, ActionWeeklyRecap, notes) }
 
 func logSimple(user, action, notes string) {
 	user = usercanon.Resolve(user)
@@ -242,8 +233,8 @@ func LastActionTS(user, action string, lookbackDays int) float64 {
 }
 
 // CountActionsSince returns the number of rows matching `action` whose ts is
-// >= sinceTS. Today's file is scanned (rituals + budget caps don't need a
-// cross-day window). Used by the budget gate (≤3 voice nudges per hour).
+// >= sinceTS. Today's file is scanned (budget caps don't need a cross-day
+// window). Used by the budget gate (≤3 voice nudges per hour).
 func CountActionsSince(user, action string, sinceTS float64) int {
 	user = usercanon.Resolve(user)
 	day := time.Unix(int64(sinceTS), 0).Format("2006-01-02")
