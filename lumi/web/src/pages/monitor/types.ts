@@ -7,6 +7,8 @@ export const FLOW_EVENTS_MAX = 10000;
 
 export interface SystemInfo {
   cpuLoad: number;
+  cpuCount: number;
+  cpuPerCore: number[];
   memTotal: number;
   memUsed: number;
   memPercent: number;

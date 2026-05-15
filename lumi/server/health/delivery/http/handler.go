@@ -47,6 +47,8 @@ func (h *HealthHandler) Readiness(c *gin.Context) {
 func (h *HealthHandler) SystemInfo(c *gin.Context) {
 	info := map[string]any{
 		"cpuLoad":    readCPUPercent(),
+		"cpuCount":   runtime.NumCPU(),
+		"cpuPerCore": readCPUPerCore(),
 		"memTotal":   0,
 		"memUsed":    0,
 		"memPercent": 0.0,
@@ -193,29 +195,49 @@ func (h *HealthHandler) Dashboard(c *gin.Context) {
 	c.JSON(http.StatusOK, serializers.ResponseSuccess(dash))
 }
 
-// cpuSampler periodically measures actual CPU usage from /proc/stat.
+// cpuSampler periodically measures actual CPU usage from /proc/stat,
+// both aggregate and per-core, computed as delta between two snapshots.
 var cpuSampler = struct {
-	mu   sync.RWMutex
-	pct  float64
-	once sync.Once
+	mu      sync.RWMutex
+	pct     float64
+	perCore []float64
+	once    sync.Once
 }{}
 
 func initCPUSampler() {
 	cpuSampler.once.Do(func() {
 		go func() {
-			prev := readCPUStat()
+			prevAgg, prevCores := readCPUStatAll()
 			for {
 				time.Sleep(2 * time.Second)
-				cur := readCPUStat()
-				totalDelta := cur.total - prev.total
-				idleDelta := cur.idle - prev.idle
+				curAgg, curCores := readCPUStatAll()
+
+				// Aggregate
+				totalDelta := curAgg.total - prevAgg.total
+				idleDelta := curAgg.idle - prevAgg.idle
+				var pct float64
 				if totalDelta > 0 {
-					pct := float64(totalDelta-idleDelta) / float64(totalDelta) * 100
-					cpuSampler.mu.Lock()
-					cpuSampler.pct = pct
-					cpuSampler.mu.Unlock()
+					pct = float64(totalDelta-idleDelta) / float64(totalDelta) * 100
 				}
-				prev = cur
+
+				// Per-core
+				perCore := make([]float64, 0, len(curCores))
+				for i := 0; i < len(curCores) && i < len(prevCores); i++ {
+					td := curCores[i].total - prevCores[i].total
+					id := curCores[i].idle - prevCores[i].idle
+					if td > 0 {
+						perCore = append(perCore, float64(td-id)/float64(td)*100)
+					} else {
+						perCore = append(perCore, 0)
+					}
+				}
+
+				cpuSampler.mu.Lock()
+				cpuSampler.pct = pct
+				cpuSampler.perCore = perCore
+				cpuSampler.mu.Unlock()
+
+				prevAgg, prevCores = curAgg, curCores
 			}
 		}()
 	})
@@ -226,27 +248,33 @@ type cpuStat struct {
 	total uint64
 }
 
-// readCPUStat reads aggregate CPU times from /proc/stat.
-func readCPUStat() cpuStat {
+// readCPUStatAll parses /proc/stat once, returning aggregate plus per-core stats.
+// Per-core lines look like `cpu0 …`, `cpu1 …` after the leading `cpu ` aggregate.
+func readCPUStatAll() (agg cpuStat, perCore []cpuStat) {
 	data, err := os.ReadFile("/proc/stat")
 	if err != nil {
-		return cpuStat{}
+		return
 	}
-	// First line: cpu  user nice system idle iowait irq softirq steal ...
-	line := strings.SplitN(string(data), "\n", 2)[0]
-	fields := strings.Fields(line)
-	if len(fields) < 5 || fields[0] != "cpu" {
-		return cpuStat{}
-	}
-	var total, idle uint64
-	for i, f := range fields[1:] {
-		v, _ := strconv.ParseUint(f, 10, 64)
-		total += v
-		if i == 3 { // 4th value is idle
-			idle = v
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 5 || !strings.HasPrefix(fields[0], "cpu") {
+			continue
+		}
+		var total, idle uint64
+		for i, f := range fields[1:] {
+			v, _ := strconv.ParseUint(f, 10, 64)
+			total += v
+			if i == 3 {
+				idle = v
+			}
+		}
+		if fields[0] == "cpu" {
+			agg = cpuStat{idle: idle, total: total}
+		} else {
+			perCore = append(perCore, cpuStat{idle: idle, total: total})
 		}
 	}
-	return cpuStat{idle: idle, total: total}
+	return
 }
 
 // readCPUPercent returns the latest sampled CPU usage percentage.
@@ -255,6 +283,16 @@ func readCPUPercent() float64 {
 	cpuSampler.mu.RLock()
 	defer cpuSampler.mu.RUnlock()
 	return cpuSampler.pct
+}
+
+// readCPUPerCore returns latest sampled per-core CPU usage percentages.
+func readCPUPerCore() []float64 {
+	initCPUSampler()
+	cpuSampler.mu.RLock()
+	defer cpuSampler.mu.RUnlock()
+	out := make([]float64, len(cpuSampler.perCore))
+	copy(out, cpuSampler.perCore)
+	return out
 }
 
 // readCPUTemp reads CPU temperature in celsius from thermal zone.

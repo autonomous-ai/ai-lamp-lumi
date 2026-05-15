@@ -44,7 +44,7 @@ export function SystemSection({
           <GaugeRing
             value={sys.cpuLoad}
             label="CPU"
-            detail={`${sys.cpuLoad.toFixed(1)}%`}
+            detail={sys.cpuCount ? `${sys.cpuCount} cores` : `${sys.cpuLoad.toFixed(1)}%`}
             color="var(--lm-amber)"
             size={110}
           />
@@ -70,6 +70,21 @@ export function SystemSection({
             size={110}
           />
         </div>
+
+        {/* Per-core CPU bars — one row per core so spikes localized to a single core
+            (e.g. STT thread pinned to core 0) are visible against an otherwise low aggregate. */}
+        {sys.cpuPerCore && sys.cpuPerCore.length > 0 && (
+          <div style={{
+            marginTop: 14,
+            paddingTop: 12,
+            borderTop: "1px solid var(--lm-border)",
+            display: "grid",
+            gridTemplateColumns: `repeat(${Math.min(sys.cpuPerCore.length, 4)}, 1fr)`,
+            gap: 10,
+          }}>
+            {sys.cpuPerCore.map((pct, i) => <CoreBar key={i} index={i} pct={pct} />)}
+          </div>
+        )}
       </div>
 
       {/* Sparklines */}
@@ -95,10 +110,10 @@ export function SystemSection({
         <div style={S.card}>
           <div style={S.cardLabel}>Service</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            <StatPill label="OS Uptime"     value={formatUptime(sys.uptime)}                                                bullet="var(--lm-text-dim)" />
-            <StatPill label="Lumi Uptime"   value={sys.serviceUptime ? formatUptime(sys.serviceUptime) : "—"} color="var(--lm-amber)" bullet="var(--lm-amber)" />
-            <StatPill label="LeLamp Uptime" value={sys.lelampUptime ? formatUptime(sys.lelampUptime) : "—"}   color="var(--lm-blue)"  bullet="var(--lm-blue)" />
-            <StatPill label="Go Routines"   value={sys.goRoutines} color="var(--lm-teal)" />
+            <StatPill label="OS Uptime"       value={formatUptime(sys.uptime)}                                                  bullet="var(--lm-text-dim)" />
+            <StatPill label="Lumi Uptime"     value={sys.serviceUptime ? formatUptime(sys.serviceUptime) : "—"} color="var(--lm-amber)" bullet="var(--lm-amber)" />
+            <StatPill label="Go Routines"     value={sys.goRoutines}                                            color="var(--lm-amber)" bullet="var(--lm-amber)" />
+            <StatPill label="Hardware Uptime" value={sys.lelampUptime ? formatUptime(sys.lelampUptime) : "—"}   color="var(--lm-blue)"  bullet="var(--lm-blue)" />
             <DeviceIdPill deviceId={sys.deviceId} />
           </div>
         </div>
@@ -115,6 +130,34 @@ export function SystemSection({
             </div>
           ) : <span style={{ color: "var(--lm-text-muted)" }}>No network data</span>}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// CoreBar shows a single CPU core's load. Color tier hints at saturation.
+function CoreBar({ index, pct }: { index: number; pct: number }) {
+  const clamped = Math.max(0, Math.min(100, pct));
+  const color = clamped > 85 ? "var(--lm-red)" : clamped > 60 ? "var(--lm-amber)" : "var(--lm-teal)";
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10.5 }}>
+        <span style={{ color: "var(--lm-text-dim)", fontFamily: "monospace" }}>C{index}</span>
+        <span style={{ color, fontWeight: 600 }}>{clamped.toFixed(0)}%</span>
+      </div>
+      <div style={{
+        height: 5,
+        background: "var(--lm-border)",
+        borderRadius: 3,
+        overflow: "hidden",
+      }}>
+        <div style={{
+          width: `${clamped}%`,
+          height: "100%",
+          background: color,
+          transition: "width 0.5s ease, background 0.3s ease",
+          boxShadow: `0 0 4px ${color}80`,
+        }} />
       </div>
     </div>
   );
