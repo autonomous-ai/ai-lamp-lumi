@@ -1,6 +1,12 @@
 import { C, PasswordField, SectionCard, SkeletonBlock } from "./shared";
 import type { NetworkItem } from "@/types";
 
+// 802.11 caps SSID at 32 bytes (not 32 chars). Each Chinese UTF-8 char is
+// 3 bytes, so a short-looking SSID can still overflow. Counting bytes here
+// matches the backend's len([]byte(ssid)) check in network.SetupNetwork.
+const SSID_MAX_BYTES = 32;
+const ssidByteLength = (s: string) => new TextEncoder().encode(s).length;
+
 export function WifiSection({
   active, ssid, setSsid, password, setPassword, loadingList, uniqueNetworks,
 }: {
@@ -12,6 +18,9 @@ export function WifiSection({
   loadingList: boolean;
   uniqueNetworks: NetworkItem[];
 }) {
+  const bytes = ssidByteLength(ssid);
+  const overLimit = bytes > SSID_MAX_BYTES;
+  const showCounter = bytes > 0 && (overLimit || bytes !== ssid.length);
   return (
     <SectionCard id="wifi" title="Wi-Fi" active={active}>
       <div style={{ marginBottom: 12 }}>
@@ -27,7 +36,8 @@ export function WifiSection({
             onChange={(e) => setSsid(e.target.value)}
             style={{
               width: "100%", boxSizing: "border-box",
-              background: C.surface, border: `1px solid ${C.border}`,
+              background: C.surface,
+              border: `1px solid ${overLimit ? C.red : C.border}`,
               borderRadius: 7, padding: "8px 11px",
               fontSize: 12.5, color: C.text, outline: "none", cursor: "pointer",
             }}
@@ -44,11 +54,22 @@ export function WifiSection({
             placeholder="Enter Wi-Fi name" autoComplete="off"
             style={{
               width: "100%", boxSizing: "border-box",
-              background: C.surface, border: `1px solid ${C.border}`,
+              background: C.surface,
+              border: `1px solid ${overLimit ? C.red : C.border}`,
               borderRadius: 7, padding: "8px 11px",
               fontSize: 12.5, color: C.text, outline: "none",
             }}
           />
+        )}
+        {showCounter && (
+          <div style={{
+            marginTop: 5, fontSize: 11,
+            color: overLimit ? C.red : C.textDim,
+          }}>
+            {overLimit
+              ? `SSID too long: ${bytes}/${SSID_MAX_BYTES} bytes (802.11 limit)`
+              : `${bytes}/${SSID_MAX_BYTES} bytes`}
+          </div>
         )}
       </div>
       <PasswordField label="Password" id="password" value={password} onChange={setPassword} placeholder="Wi-Fi password" />
