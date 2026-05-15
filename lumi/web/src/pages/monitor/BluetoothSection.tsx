@@ -69,7 +69,7 @@ export function BluetoothSection() {
       setStatusError(null);
     } catch (e) {
       if ((e as any)?.name !== "AbortError") {
-        setStatusError("Không lấy được trạng thái Bluetooth");
+        setStatusError("Failed to fetch Bluetooth status");
       }
     }
   }, []);
@@ -106,7 +106,7 @@ export function BluetoothSection() {
       if (!r.ok) throw new Error(await r.text());
       setScanning(true);
     } catch (e: any) {
-      setPairError(e?.message || "Không bắt đầu quét được");
+      setPairError(e?.message || "Failed to start scan");
     }
   };
 
@@ -121,12 +121,12 @@ export function BluetoothSection() {
       });
       if (!r.ok) {
         const err = await r.json().catch(() => ({}));
-        throw new Error(err.detail || "Ghép nối thất bại");
+        throw new Error(err.detail || "Pairing failed");
       }
       setPairOpen(false);
       await refresh();
     } catch (e: any) {
-      setPairError(e?.message || "Ghép nối thất bại");
+      setPairError(e?.message || "Pairing failed");
     } finally {
       setPairingMac(null);
     }
@@ -143,11 +143,11 @@ export function BluetoothSection() {
       });
       if (!r.ok) {
         const err = await r.json().catch(() => ({}));
-        throw new Error(err.detail || "Không chuyển được route");
+        throw new Error(err.detail || "Failed to switch audio route");
       }
       await refresh();
     } catch (e: any) {
-      setActionError(e?.message || "Không chuyển được route");
+      setActionError(e?.message || "Failed to switch audio route");
     } finally {
       setBusyMac(null);
     }
@@ -164,11 +164,11 @@ export function BluetoothSection() {
       });
       if (!r.ok) {
         const err = await r.json().catch(() => ({}));
-        throw new Error(err.detail || "Không quên được thiết bị");
+        throw new Error(err.detail || "Failed to forget device");
       }
       await refresh();
     } catch (e: any) {
-      setActionError(e?.message || "Không quên được thiết bị");
+      setActionError(e?.message || "Failed to forget device");
     } finally {
       setBusyMac(null);
       setForgetConfirm(null);
