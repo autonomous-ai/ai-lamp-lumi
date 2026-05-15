@@ -14,7 +14,7 @@ from pydantic import BaseModel
 import lelamp.app_state as state
 from lelamp.service.audio_route import (
     current_label,
-    route_to_bluetooth,
+    route_to_bluetooth_pa,
     route_to_lamp,
 )
 from lelamp.service.bluetooth_manager import BluetoothManager
@@ -134,22 +134,29 @@ def bt_active_set(req: ActiveRequest):
     if not mgr.info(target)["connected"] and not mgr.connect(target):
         raise HTTPException(503, f"Could not connect to {target}")
 
-    out_idx, in_idx = mgr.find_sd_indices(target, sd)
-    if out_idx is None:
+    pa_sink = mgr.pa_sink_for_mac(target)
+    if not pa_sink:
         raise HTTPException(
             503,
-            f"PulseAudio/bluez did not expose {target} to PortAudio — "
-            f"check pipewire/pulseaudio service",
+            f"PulseAudio has no sink for {target} — check pulseaudio-module-bluetooth",
         )
+    pulse_idx = mgr.pulse_sd_index(sd)
+    if pulse_idx is None:
+        raise HTTPException(
+            503,
+            "PortAudio cannot see PulseAudio — sounddevice/portaudio not built with pulse support",
+        )
+    pa_source = mgr.pa_source_for_mac(target)
 
-    route_to_bluetooth(out_idx, in_idx, target)
+    route_to_bluetooth_pa(pulse_idx, pa_sink, pa_source, target)
     mgr.set_active_mac(target)
     return {
         "status": "ok",
         "active_mac": target,
         "label": current_label(),
-        "output_index": out_idx,
-        "input_index": in_idx,
+        "pa_sink": pa_sink,
+        "pa_source": pa_source,
+        "pulse_sd_index": pulse_idx,
     }
 
 
