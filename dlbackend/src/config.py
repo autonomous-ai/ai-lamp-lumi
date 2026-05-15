@@ -50,7 +50,7 @@ class PoseSetting(BaseModel):
     enabled: bool = True
     model: PoseEstimator2DEnum = PoseEstimator2DEnum.RTMPOSE
     ckpt_path: str | None = None
-    # Optional overrides — None means use class defaults from PoseAnalysis
+    # Optional overrides — None means use class defaults from PosePerceptionSessionConfig
     confidence_threshold_2d: float | None = None
     min_valid_keypoints: int | None = None
     lifter_3d: PoseLifter3DEnum | None = PoseLifter3DEnum.TCPFORMER

@@ -51,6 +51,7 @@ class PerceptionSessionBase(Generic[INPUT_T, OUTPUT_T, CONFIG_T], ABC):
 
         Subclasses should override with explicit typed kwargs and call
         super().update_config(**kwargs) to get the Omit filtering.
+
         """
         for k, v in kwargs.items():
             if not isinstance(v, Omit):

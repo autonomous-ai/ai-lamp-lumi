@@ -3,9 +3,9 @@
 from pathlib import Path
 
 from core.enums.pose import ErgoAssessorEnum, PoseEstimator2DEnum, PoseLifter3DEnum
-from core.perception.pose.ergo.base import ErgoAssessor
-from core.perception.pose.pose2d.base import PoseEstimator2D
-from core.perception.pose.pose3d.base import PoseEstimator3DLifting
+from core.perception.pose.predictors.ergo.base import ErgoAssessor
+from core.perception.pose.predictors.pose2d.base import PoseEstimator2D
+from core.perception.pose.predictors.pose3d.base import PoseEstimator3DLifting
 
 
 def create_estimator_2d(
@@ -14,51 +14,42 @@ def create_estimator_2d(
 ) -> PoseEstimator2D:
     """Instantiate the correct 2D pose estimator."""
     if model_name == PoseEstimator2DEnum.RTMPOSE:
-        from core.perception.pose.pose2d.rtmpose import RTMPose2D
-
-        return RTMPose2D(model_path=model_path)
+        from core.perception.pose.predictors.pose2d.rtmpose import RTMPose2D as estimator_cls
     else:
         raise ValueError(f"Unknown 2D pose estimator: {model_name}")
+
+    return estimator_cls(model_path=model_path)
 
 
 def create_lifter_3d(
     model_name: PoseLifter3DEnum,
     model_path: Path | None = None,
-    frame_size: tuple[int, int] | None = None,
+    input_size: tuple[int, int] | None = None,
     n_frames: int | None = None,
 ) -> PoseEstimator3DLifting:
     """Instantiate the correct 3D pose lifter."""
     if model_name == PoseLifter3DEnum.TCPFORMER:
-        from core.perception.pose.pose3d.tcpformer import TCPFormer3D
-
-        kwargs: dict = {}
-        if model_path is not None:
-            kwargs["model_path"] = model_path
-        if frame_size is not None:
-            kwargs["frame_size"] = frame_size
-        if n_frames is not None:
-            kwargs["n_frames"] = n_frames
-        return TCPFormer3D(**kwargs)
+        from core.perception.pose.predictors.pose3d.tcpformer import TCPFormer3D as lifter_cls
     else:
         raise ValueError(f"Unknown 3D pose lifter: {model_name}")
+
+    return lifter_cls(model_path=model_path, input_size=input_size, n_frames=n_frames)
 
 
 def create_ergo_assessor(
     model_name: ErgoAssessorEnum,
     confidence_threshold: float | None = None,
-    muscle_use_score: int = 0,
-    force_load_score: int = 0,
+    muscle_use_score: int | None = None,
+    force_load_score: int | None = None,
 ) -> ErgoAssessor:
     """Instantiate the correct ergonomic assessor."""
     if model_name == ErgoAssessorEnum.RULA:
-        from core.perception.pose.ergo.rula import RULAAssessor
-
-        kwargs: dict = {
-            "muscle_use_score": muscle_use_score,
-            "force_load_score": force_load_score,
-        }
-        if confidence_threshold is not None:
-            kwargs["confidence_threshold"] = confidence_threshold
-        return RULAAssessor(**kwargs)
+        from core.perception.pose.predictors.ergo.rula import RULAAssessor as assessor_cls
     else:
         raise ValueError(f"Unknown ergonomic assessor: {model_name}")
+
+    return assessor_cls(
+        confidence_threshold=confidence_threshold,
+        muscle_use_score=muscle_use_score,
+        force_load_score=force_load_score,
+    )

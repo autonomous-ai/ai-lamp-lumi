@@ -18,7 +18,7 @@ from fastapi import Depends, FastAPI, HTTPException, Security
 from fastapi.security import APIKeyHeader
 
 from config import settings
-from factory import build_action_perception, build_emotion_perception, build_pose_analysis
+from factory import build_action_perception, build_emotion_perception, build_pose_perception
 from protocols.htpp import audio_recognizer as audio_recognizer_protocol
 from protocols.htpp import speech_emotion_recognizer as ser_protocol
 from protocols.htpp.action import router as action_ws_router
@@ -106,7 +106,7 @@ async def lifespan(app: FastAPI):
     if settings.pose.enabled:
         logger.info("Loading pose estimator...")
         try:
-            pose_model = build_pose_analysis()
+            pose_model = build_pose_perception()
             pose_model.start()
             set_pose_model(pose_model)
             logger.info("Pose estimator ready")

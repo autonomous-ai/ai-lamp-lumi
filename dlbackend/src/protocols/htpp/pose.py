@@ -5,13 +5,14 @@ import logging
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import TypeAdapter, ValidationError
 
-from core.models.pose import (
+from protocols.models.pose import (
     PoseConfigRequest,
     PoseEstimateRequest,
     PoseEstimateResponse,
     PoseFrameRequest,
     PoseHeartBeatRequest,
     PoseRequest,
+    PoseResponse,
 )
 from protocols.utils.common import decode_image, verify_ws_api_key
 from protocols.utils.state import get_pose_model
@@ -20,7 +21,7 @@ logger: logging.Logger = logging.getLogger(__name__)
 
 ws_router: APIRouter = APIRouter()
 http_router: APIRouter = APIRouter()
-_request_adapter: TypeAdapter = TypeAdapter(PoseRequest)
+_request_adapter: TypeAdapter[PoseRequest] = TypeAdapter(PoseRequest)
 
 
 @ws_router.websocket("/pose-estimation/ws")
@@ -58,19 +59,17 @@ async def pose_estimation_ws(websocket: WebSocket):
                 match req:
                     case PoseFrameRequest():
                         frame = decode_image(req.frame_b64)
-                        result: dict | None = session.update(frame)
+                        result = await session.update(frame)
                         if result is not None:
-                            response: dict = {}
-                            if result.get("pose_2d") is not None:
-                                response["pose_2d"] = result["pose_2d"].model_dump()
-                            if result.get("pose_3d") is not None:
-                                response["pose_3d"] = result["pose_3d"].model_dump()
-                            if result.get("ergo") is not None:
-                                response["ergo"] = result["ergo"].model_dump()
-                            await websocket.send_json(response)
+                            response = PoseResponse.from_pose_detection(result)
+                            await websocket.send_json(response.model_dump(exclude_none=True))
 
                     case PoseConfigRequest():
-                        session.set_config(frame_interval=req.frame_interval)
+                        session.update_config(
+                            frame_interval=req.frame_interval,
+                            confidence_threshold_2d=req.confidence_threshold_2d,
+                            min_valid_keypoints=req.min_valid_keypoints,
+                        )
                         await websocket.send_json({"status": "config_updated"})
 
                     case PoseHeartBeatRequest():
@@ -98,20 +97,9 @@ async def pose_estimate(req: PoseEstimateRequest):
 
     frame = decode_image(req.image_b64)
     session = pose_model.create_session()
-    result: dict | None = session.update(frame)
+    result = await session.update(frame)
     if result is None:
         raise HTTPException(status_code=500, detail="Pose estimation failed")
 
-    logger.info(
-        "[Pose] Estimated %d joints",
-        len(result["pose_2d"].joints) if result.get("pose_2d") else 0,
-    )
-    ergo_data = None
-    if result.get("ergo") is not None:
-        ergo_data = result["ergo"].model_dump()
-
-    return PoseEstimateResponse(
-        pose_2d=result.get("pose_2d"),
-        pose_3d=result.get("pose_3d"),
-        ergo=ergo_data,
-    )
+    logger.info("[Pose] Estimated %d joints", len(result.pose_2d.joints))
+    return PoseEstimateResponse.from_pose_detection(result)

@@ -11,7 +11,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from protocols.utils.state import get_pose_model, set_pose_model
-from core.perception.pose.pose import PoseAnalysis
+from core.models.pose import PosePerceptionSessionConfig
+from core.perception.pose.perception import PosePerception
 from core.perception.pose.utils import create_ergo_assessor, create_estimator_2d
 
 TEST_API_KEY = "test-secret-key"
@@ -43,11 +44,13 @@ def model():
         model_name=ErgoAssessorEnum.RULA,
         confidence_threshold=0.0,  # low threshold so random frames produce results
     )
-    pose_model = PoseAnalysis(
+    pose_model = PosePerception(
         estimator_2d=estimator_2d,
         ergo_assessor=ergo_assessor,
-        confidence_threshold_2d=0.0,
-        min_valid_keypoints=0,
+        default_config=PosePerceptionSessionConfig(
+            confidence_threshold_2d=0.0,
+            min_valid_keypoints=0,
+        ),
     )
     pose_model.start()
     return pose_model
@@ -154,7 +157,7 @@ class TestNoErgoWithoutAssessor:
         estimator_2d = create_estimator_2d(
             model_name=PoseEstimator2DEnum.RTMPOSE, model_path=RTMPOSE_MODEL_PATH
         )
-        pose_model_no_ergo = PoseAnalysis(estimator_2d=estimator_2d)
+        pose_model_no_ergo = PosePerception(estimator_2d=estimator_2d)
         pose_model_no_ergo.start()
 
         import config
