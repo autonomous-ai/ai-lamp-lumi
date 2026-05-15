@@ -3,7 +3,7 @@ import type { Turn } from "./types";
 import { SOURCE_ICON, TURN_INPUT_FALLBACK } from "./types";
 import { turnIO, turnTokenStats, turnCurrentUser } from "./helpers";
 
-export function TurnBadge({ turn, pairTint }: { turn: Turn; pairTint?: string }) {
+export function TurnBadge({ turn, pairTint, onViewPipeline }: { turn: Turn; pairTint?: string; onViewPipeline?: () => void }) {
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const formatTurnTime = (iso: string): string => {
     const date = new Date(iso);
@@ -293,6 +293,28 @@ export function TurnBadge({ turn, pairTint }: { turn: Turn; pairTint?: string })
       <div style={{ fontSize: 9, color: "var(--lm-text-muted)", marginTop: 3, display: "flex", gap: 8, alignItems: "center" }}>
         <span>{turn.events.length} events</span>
       </div>
+      {onViewPipeline && (
+        <button
+          type="button"
+          className="lm-view-pipeline-btn"
+          onClick={(e) => { e.stopPropagation(); onViewPipeline(); }}
+          style={{
+            marginTop: 8,
+            width: "100%",
+            padding: "7px 10px",
+            borderRadius: 6,
+            background: "var(--lm-amber-dim)",
+            border: "1px solid var(--lm-amber)",
+            color: "var(--lm-amber)",
+            cursor: "pointer",
+            fontSize: 11,
+            fontWeight: 700,
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 6,
+          }}
+        >⬢ View pipeline</button>
+      )}
     </div>
   );
 }

@@ -234,11 +234,15 @@
 
   .lm-content { padding: 12px !important; }
 
-  /* Flow section: stack turn list above the diagram so neither gets squeezed.
-     50vh cap leaves room for the diagram below while keeping enough body
-     height for the dense filter header + at least a handful of turns. */
+  /* Flow section on mobile: hide the right-pane Turn Pipeline card entirely
+     and let the turn list fill the full content area. The pipeline is reached
+     by tapping the "View pipeline" button inside the selected turn card,
+     which opens a full-screen PipelineModal. Keeping both stacked on a phone
+     screen squeezed both into unreadable strips — the modal pattern gives
+     the diagram real estate to breathe. */
   .lm-flow-layout { flex-direction: column !important; }
-  .lm-flow-turns  { width: 100% !important; max-height: 50vh; min-height: 220px; }
+  .lm-flow-turns  { width: 100% !important; flex: 1 !important; min-height: 0 !important; max-height: none !important; }
+  .lm-flow-pipeline { display: none !important; }
 
   /* Mobile collapse: each turn card shows only its header row until tapped.
      Selected turn (data-expanded="true") shows the full body. Lets the user
@@ -257,7 +261,15 @@
     background: linear-gradient(to bottom, transparent, var(--lm-surface));
     pointer-events: none;
   }
+
+  /* Mobile-only View pipeline button inside each TurnBadge. Hidden on desktop
+     because the pipeline already sits inline next to the turn list. */
+  .lm-view-pipeline-btn { display: flex !important; }
 }
+
+/* View pipeline button — hidden by default (desktop), shown only on mobile
+   via the media query above. */
+.lm-view-pipeline-btn { display: none; }
 
 @media (max-width: 480px) {
   .lm-grid-4 { grid-template-columns: 1fr 1fr; gap: 8px; }

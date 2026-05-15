@@ -10,6 +10,7 @@ import { FlowDiagram } from "./FlowDiagram";
 import { TurnBadge } from "./TurnBadge";
 import { CanvasModal } from "./CanvasModal";
 import { CompactionModal } from "./CompactionModal";
+import { PipelineModal } from "./PipelineModal";
 
 // Category → turn types mapping
 const CAT_TYPES: Record<string, string[]> = {
@@ -59,6 +60,9 @@ export function FlowSection({
   const [showCompaction, setShowCompaction] = useState(false);
   const [compactionAt, setCompactionAt] = useState<{ at: string; label: string } | null>(null);
   const [selectedTurnId, setSelectedTurnId] = useState<string | null>(null);
+  // Mobile-only: opens the PipelineModal full-screen. Desktop hides the
+  // "View pipeline" button (CSS .lm-view-pipeline-btn) so this stays false.
+  const [mobilePipelineOpen, setMobilePipelineOpen] = useState(false);
   // Opt-out model: store what user has EXCLUDED. Empty = show all.
   const [excludedTypes, setExcludedTypes] = useState<Set<string>>(() => {
     try {
@@ -412,6 +416,87 @@ export function FlowSection({
     }
   }
 
+  // Pipeline body — header (label + summary-prompt button + meta) + timing
+  // breakdown + FlowDiagram. Shared between the desktop inline render
+  // (wrapped in S.card inside .lm-flow-pipeline) and the mobile
+  // PipelineModal (full-screen overlay reached from the per-turn "View
+  // pipeline" button). Captured here so both call sites stay in sync.
+  const pipelineBody = (
+    <>
+      <div style={{ marginBottom: 10, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" as const }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" as const }}>
+          <span style={S.cardLabel}>Turn Pipeline</span>
+          {selectedTurn && (
+            <button
+              onClick={() => setCompactionAt({
+                at: selectedTurn.startTime,
+                label: `${selectedTurn.type} @ ${new Date(selectedTurn.startTime).toLocaleTimeString()}`,
+              })}
+              title="Show the OpenClaw compaction summary that was active at the moment this turn fired — the text injected at the top of this turn's prompt."
+              style={{
+                fontSize: 10, padding: "2px 8px", borderRadius: 4,
+                background: "var(--lm-purple)", border: "1px solid var(--lm-purple)",
+                color: "#fff", cursor: "pointer", fontWeight: 700,
+              }}
+            >
+              📋 summary prompt of this turn
+            </button>
+          )}
+        </div>
+        {selectedTurn && (
+          <span style={{ fontSize: 10, color: "var(--lm-text-muted)" }}>
+            {selectedTurn.type} · {selectedTurn.events.length} events
+            {selectedTurn.endTime ? ` · done` : ` · active`}
+          </span>
+        )}
+      </div>
+      {selectedTurn?.endTime && (() => {
+        const timing = extractTurnTiming(selectedTurn.events, selectedTurn.startTime, selectedTurn.endTime);
+        if (!timing || timing.segments.length === 0) return null;
+        const fmtTotal = timing.total >= 60_000 ? `${(timing.total / 60_000).toFixed(1)}m`
+          : timing.total >= 1000 ? `${(timing.total / 1000).toFixed(1)}s` : `${timing.total}ms`;
+        return (
+          <div style={{ marginBottom: 8, fontSize: 10, fontFamily: "monospace" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ color: "var(--lm-text-muted)", whiteSpace: "nowrap" }}>⏱ {fmtTotal}</span>
+              <div style={{ flex: 1, display: "flex", height: 14, borderRadius: 4, overflow: "hidden", background: "var(--lm-surface)" }}>
+                {timing.segments.map((seg, i) => {
+                  const pct = Math.max((seg.ms / timing.total) * 100, 2);
+                  return (
+                    <div key={i} title={seg.label} style={{
+                      width: `${pct}%`, background: seg.color, opacity: 0.7,
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      fontSize: 8, color: "#fff", fontWeight: 600, whiteSpace: "nowrap",
+                      overflow: "hidden", textOverflow: "ellipsis", padding: "0 2px",
+                    }}>
+                      {pct > 12 ? seg.label : ""}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 3, marginTop: 5 }}>
+              {timing.segments.map((seg, i) => (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: 4, lineHeight: 1.3 }}>
+                  <span style={{ width: 6, height: 6, borderRadius: 2, background: seg.color, opacity: 0.7, display: "inline-block", flexShrink: 0 }} />
+                  <span style={{ color: "var(--lm-text)", fontSize: 9, fontWeight: 600, whiteSpace: "nowrap" }}>{seg.label}</span>
+                  {seg.from && seg.to && (
+                    <span style={{ fontSize: 9, color: "var(--lm-green)" }}>
+                      <code style={{ background: "var(--lm-surface)", padding: "1px 4px", borderRadius: 3, fontSize: 8 }}>{seg.from}</code>
+                      {" → "}
+                      <code style={{ background: "var(--lm-surface)", padding: "1px 4px", borderRadius: 3, fontSize: 8 }}>{seg.to}</code>
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+      <FlowDiagram activeStage={activeStage} visitedStages={visitedStages} turnEvents={turnEvents} compact />
+    </>
+  );
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14, height: "100%", overflow: "hidden" }}>
       {showCanvas && (
@@ -421,6 +506,12 @@ export function FlowSection({
           turnEvents={turnEvents}
           onClose={() => setShowCanvas(false)}
         />
+      )}
+
+      {mobilePipelineOpen && selectedTurn && (
+        <PipelineModal onClose={() => setMobilePipelineOpen(false)}>
+          {pipelineBody}
+        </PipelineModal>
       )}
 
       {showCompaction && <CompactionModal onClose={() => setShowCompaction(false)} />}
@@ -810,7 +901,14 @@ export function FlowSection({
                       cursor: "pointer",
                     }}
                   >
-                    <TurnBadge turn={turn} pairTint={pairTintMap.get(turn.id)} />
+                    <TurnBadge
+                      turn={turn}
+                      pairTint={pairTintMap.get(turn.id)}
+                      onViewPipeline={() => {
+                        setSelectedTurnId(turn.id);
+                        setMobilePipelineOpen(true);
+                      }}
+                    />
                   </div>
                 </div>
               ))
@@ -818,80 +916,13 @@ export function FlowSection({
           </div>
         </div>
 
-        {/* Center: flow diagram */}
-        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 12, minHeight: 0 }}>
+        {/* Center: flow diagram. Hidden on mobile via .lm-flow-pipeline CSS —
+            users reach it through the "View pipeline" button on each
+            TurnBadge, which opens PipelineModal full-screen with the same
+            pipelineBody content. */}
+        <div className="lm-flow-pipeline" style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 12, minHeight: 0 }}>
           <div style={{ ...S.card, flex: 1, minHeight: 0, overflow: "hidden", display: "flex", flexDirection: "column" }}>
-            <div style={{ marginBottom: 10, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={S.cardLabel}>Turn Pipeline</span>
-                {selectedTurn && (
-                  <button
-                    onClick={() => setCompactionAt({
-                      at: selectedTurn.startTime,
-                      label: `${selectedTurn.type} @ ${new Date(selectedTurn.startTime).toLocaleTimeString()}`,
-                    })}
-                    title="Show the OpenClaw compaction summary that was active at the moment this turn fired — the text injected at the top of this turn's prompt."
-                    style={{
-                      fontSize: 10, padding: "2px 8px", borderRadius: 4,
-                      background: "var(--lm-purple)", border: "1px solid var(--lm-purple)",
-                      color: "#fff", cursor: "pointer", fontWeight: 700,
-                    }}
-                  >
-                    📋 summary prompt of this turn
-                  </button>
-                )}
-              </div>
-              {selectedTurn && (
-                <span style={{ fontSize: 10, color: "var(--lm-text-muted)" }}>
-                  {selectedTurn.type} · {selectedTurn.events.length} events
-                  {selectedTurn.endTime ? ` · done` : ` · active`}
-                </span>
-              )}
-            </div>
-            {selectedTurn?.endTime && (() => {
-              const timing = extractTurnTiming(selectedTurn.events, selectedTurn.startTime, selectedTurn.endTime);
-              if (!timing || timing.segments.length === 0) return null;
-              const fmtTotal = timing.total >= 60_000 ? `${(timing.total / 60_000).toFixed(1)}m`
-                : timing.total >= 1000 ? `${(timing.total / 1000).toFixed(1)}s` : `${timing.total}ms`;
-              return (
-                <div style={{ marginBottom: 8, fontSize: 10, fontFamily: "monospace" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <span style={{ color: "var(--lm-text-muted)", whiteSpace: "nowrap" }}>⏱ {fmtTotal}</span>
-                    <div style={{ flex: 1, display: "flex", height: 14, borderRadius: 4, overflow: "hidden", background: "var(--lm-surface)" }}>
-                      {timing.segments.map((seg, i) => {
-                        const pct = Math.max((seg.ms / timing.total) * 100, 2);
-                        return (
-                          <div key={i} title={seg.label} style={{
-                            width: `${pct}%`, background: seg.color, opacity: 0.7,
-                            display: "flex", alignItems: "center", justifyContent: "center",
-                            fontSize: 8, color: "#fff", fontWeight: 600, whiteSpace: "nowrap",
-                            overflow: "hidden", textOverflow: "ellipsis", padding: "0 2px",
-                          }}>
-                            {pct > 12 ? seg.label : ""}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 3, marginTop: 5 }}>
-                    {timing.segments.map((seg, i) => (
-                      <div key={i} style={{ display: "flex", alignItems: "center", gap: 4, lineHeight: 1.3 }}>
-                        <span style={{ width: 6, height: 6, borderRadius: 2, background: seg.color, opacity: 0.7, display: "inline-block", flexShrink: 0 }} />
-                        <span style={{ color: "var(--lm-text)", fontSize: 9, fontWeight: 600, whiteSpace: "nowrap" }}>{seg.label}</span>
-                        {seg.from && seg.to && (
-                          <span style={{ fontSize: 9, color: "var(--lm-green)" }}>
-                            <code style={{ background: "var(--lm-surface)", padding: "1px 4px", borderRadius: 3, fontSize: 8 }}>{seg.from}</code>
-                            {" → "}
-                            <code style={{ background: "var(--lm-surface)", padding: "1px 4px", borderRadius: 3, fontSize: 8 }}>{seg.to}</code>
-                          </span>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              );
-            })()}
-            <FlowDiagram activeStage={activeStage} visitedStages={visitedStages} turnEvents={turnEvents} compact />
+            {pipelineBody}
           </div>
         </div>
 
