@@ -3,11 +3,10 @@
 import numpy as np
 import numpy.typing as npt
 
-from core.perception.pose.graph.h36m import H36MJoint
+from core.perception.pose.graph.h36m import H36MSkeleton
 from core.utils.compute import angle_between_3d, rotate_to
 
-# Joint name lookup for skipped-joints reporting
-JOINT_NAMES: dict[int, str] = {j.value: j.name.lower() for j in H36MJoint}
+_H36M = H36MSkeleton()
 
 
 def signed_flexion_angle(
@@ -31,8 +30,10 @@ def align_to_vertical(
     keypoints: npt.NDArray[np.float32],
 ) -> npt.NDArray[np.float32]:
     """Rotate 3D keypoints so that spine-to-thorax aligns with +Z (up)."""
-    spine: npt.NDArray[np.float32] = keypoints[H36MJoint.SPINE]
-    thorax: npt.NDArray[np.float32] = keypoints[H36MJoint.THORAX]
+    spine_idx: int = _H36M.joint("SPINE")
+    thorax_idx: int = _H36M.joint("THORAX")
+    spine: npt.NDArray[np.float32] = keypoints[spine_idx]
+    thorax: npt.NDArray[np.float32] = keypoints[thorax_idx]
     trunk_vec: npt.NDArray[np.float32] = thorax - spine
 
     return rotate_to(
@@ -41,3 +42,8 @@ def align_to_vertical(
         dst_vec=np.array([0.0, 0.0, 1.0], dtype=np.float32),
         center=spine,
     )
+
+
+def joint_name(idx: int) -> str:
+    """Get lowercase joint name for reporting."""
+    return H36MSkeleton.JOINT_NAMES.get(idx, str(idx)).lower()

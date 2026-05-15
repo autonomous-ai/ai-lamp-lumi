@@ -175,11 +175,11 @@ class PosePerceptionSession(
 
         if result.pose_2d.joints:
             self._logger.info(
-                "[session %s] Pose: %d joints, 3D=%s, ergo=%s",
+                "[session %s] Pose: %d joints, 3D=%s, ergo=%d",
                 self._session_id,
                 len(result.pose_2d.joints),
                 result.pose_3d is not None,
-                result.ergo is not None,
+                result.ergo.score if result.ergo is not None else -1,
             )
 
         return result
