@@ -7,32 +7,41 @@ const LOG_SOURCES: { id: LogSource; label: string; color: string }[] = [
   { id: "lelamp",           label: "LeLamp",     color: "var(--lm-green)" },
   { id: "lumi",             label: "Lumi",       color: "var(--lm-amber)" },
   { id: "openclaw",         label: "OpenClaw",   color: "var(--lm-blue)" },
-  { id: "openclaw-service", label: "OC Service", color: "var(--lm-purple, #a78bfa)" },
-  { id: "buddy",            label: "Buddy",      color: "var(--lm-cyan, #22d3ee)" },
+  { id: "openclaw-service", label: "OC Service", color: "var(--lm-purple)" },
+  { id: "buddy",            label: "Buddy",      color: "var(--lm-cyan)" },
 ];
 
 const LOG_LEVELS = ["ALL", "DEBUG", "INFO", "WARN", "ERROR"] as const;
 type LogLevel = (typeof LOG_LEVELS)[number];
 
+// Word-boundary level detection — avoids false positives like `error_count=0`
+// reporting as ERROR. Looks for the level token surrounded by non-word chars
+// or at start/end of line.
+const LEVEL_RE = {
+  ERROR: /\b(ERROR|ERR)\b/i,
+  WARN:  /\b(WARN(?:ING)?)\b/i,
+  DEBUG: /\b(DEBUG|DBG)\b/i,
+  INFO:  /\b(INFO|INF)\b/i,
+};
 function detectLevel(line: string): LogLevel {
-  const u = line.toUpperCase();
-  if (u.includes("ERROR") || u.includes("ERR ")) return "ERROR";
-  if (u.includes("WARN") || u.includes("WARNING")) return "WARN";
-  if (u.includes("DEBUG") || u.includes("DBG ")) return "DEBUG";
-  if (u.includes("INFO") || u.includes("INF ")) return "INFO";
+  if (LEVEL_RE.ERROR.test(line)) return "ERROR";
+  if (LEVEL_RE.WARN.test(line))  return "WARN";
+  if (LEVEL_RE.DEBUG.test(line)) return "DEBUG";
+  if (LEVEL_RE.INFO.test(line))  return "INFO";
   return "ALL";
 }
 
 const levelColor: Record<LogLevel, string> = {
   ALL: "var(--lm-text-dim)",
-  DEBUG: "#a78bfa",
+  DEBUG: "var(--lm-purple)",
   INFO: "var(--lm-text-dim)",
-  WARN: "#fbbf24",
-  ERROR: "#f87171",
+  WARN: "var(--lm-amber)",
+  ERROR: "var(--lm-red)",
 };
 
-// Strip ANSI escape codes (color codes like [32m, [0m, etc.)
-const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;]*m|\[(?:\d+;)*\d*m/g, "");
+// Strip ANSI escape codes only when prefixed by ESC. The earlier fallback that
+// matched any `[…m` ate parts of content like `[200ms]` from app logs.
+const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "");
 
 function LogPanel({ source, label, color, initialFilter, initialLevel, onFilterChange }: {
   source: LogSource; label: string; color: string;
@@ -143,11 +152,15 @@ function LogPanel({ source, label, color, initialFilter, initialLevel, onFilterC
   const highlightLine = (line: string) => {
     if (!filter.trim()) return formatLine(line);
     try {
+      // Capture group + split → every other piece is a match. This avoids
+      // re.test() with the /g flag mutating lastIndex between checks.
       const re = new RegExp(`(${filter})`, "gi");
       const parts = line.split(re);
       if (parts.length <= 1) return formatLine(line);
       return parts.map((p, i) =>
-        re.test(p) ? <mark key={i} style={{ background: "#fbbf2466", color: "inherit", borderRadius: 2, padding: "0 1px" }}>{p}</mark> : p
+        i % 2 === 1
+          ? <mark key={i} style={{ background: "rgba(245,158,11,0.4)", color: "inherit", borderRadius: 2, padding: "0 1px" }}>{p}</mark>
+          : p,
       );
     } catch {
       return formatLine(line);
@@ -247,6 +260,20 @@ function LogPanel({ source, label, color, initialFilter, initialLevel, onFilterC
         {filter && (
           <button onClick={() => { setFilter(""); onFilterChange(source, "", level); }} style={{ ...btnStyle, padding: "3px 6px" }}>✕</button>
         )}
+        <button
+          onClick={() => {
+            const text = (filtered.length ? filtered : lines).join("\n");
+            const blob = new Blob([text], { type: "text/plain" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `${source}-${new Date().toISOString().replace(/[:.]/g, "-")}.log`;
+            a.click();
+            URL.revokeObjectURL(url);
+          }}
+          title="Download visible lines as .log"
+          style={btnStyle}
+        >↓</button>
         <button onClick={() => setLines([])} style={btnStyle}>Clear</button>
         <label style={{ marginLeft: "auto", fontSize: 9, color: "var(--lm-text-muted)", display: "flex", alignItems: "center", gap: 4, cursor: "pointer", userSelect: "none" }}>
           <input
@@ -267,7 +294,9 @@ function LogPanel({ source, label, color, initialFilter, initialLevel, onFilterC
         style={{
           flex: 1, overflowY: "auto", padding: "6px 0",
           fontFamily: "'JetBrains Mono', 'Fira Code', 'Consolas', monospace",
-          fontSize: 10.5, lineHeight: 1.55, whiteSpace: "pre-wrap" as const, wordBreak: "break-all" as const,
+          fontSize: 10.5, lineHeight: 1.55,
+          whiteSpace: "pre-wrap" as const,
+          overflowWrap: "anywhere" as const,
         }}
         className="lm-hide-scroll"
       >
@@ -311,10 +340,15 @@ function loadLogState(): { active: LogSource; filters: Record<string, { filter: 
   return { active: "openclaw", filters: {} };
 }
 
+// saveLogState is debounced so per-keystroke filter edits don't hammer localStorage.
+let _saveTimer: number | null = null;
 function saveLogState(active: LogSource, filters: Record<string, { filter: string; level: LogLevel }>) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ active, filters }));
-  } catch {}
+  if (_saveTimer != null) clearTimeout(_saveTimer);
+  _saveTimer = window.setTimeout(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ active, filters }));
+    } catch {}
+  }, 250);
 }
 
 export function LogsSection() {

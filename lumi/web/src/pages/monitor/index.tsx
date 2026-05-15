@@ -381,7 +381,11 @@ export default function Monitor() {
         </div>
 
         {/* Content */}
-        <div style={{ ...S.content, ...(section === "chat" ? { padding: 0, overflow: "hidden" } : {}) }} className="lm-content lm-fade-in">
+        <div style={{
+          ...S.content,
+          ...(section === "chat" ? { padding: 0, overflow: "hidden" } : {}),
+          ...(section === "api-docs" ? { padding: 0, overflow: "hidden" } : {}),
+        }} className="lm-content lm-fade-in">
           {section === "overview" && (
             <OverviewSection
               sys={sys}
@@ -429,6 +433,19 @@ export default function Monitor() {
             <ChatSection events={events} isActive={section === "chat"} />
           </div>
           {section === "cli" && <CliSection />}
+          {section === "api-docs" && (
+            <iframe
+              title="API Docs"
+              src="/hw/docs"
+              style={{
+                width: "100%",
+                height: "100%",
+                border: "none",
+                display: "block",
+                background: "var(--lm-card)",
+              }}
+            />
+          )}
         </div>
       </main>
     </div>
