@@ -324,7 +324,7 @@ stage_lelamp() {
 
   # Install uv + system libs for audio/camera + PulseAudio echo cancellation
   apt update
-  apt install -y libportaudio2 portaudio19-dev pulseaudio pulseaudio-utils ffmpeg || true
+  apt install -y libportaudio2 portaudio19-dev pulseaudio pulseaudio-utils pulseaudio-module-bluetooth bluez ffmpeg || true
 
   # PulseAudio WebRTC AEC (echo cancellation for mic/speaker loopback)
   PULSE_CONF="/etc/pulse/default.pa"
@@ -336,6 +336,19 @@ stage_lelamp() {
 load-module module-echo-cancel source_name=aec_source sink_name=aec_sink aec_method=webrtc aec_args="analog_gain_control=0 digital_gain_control=0" channels=1
 set-default-source aec_source
 set-default-sink aec_sink
+PULSE_EOF
+  fi
+
+  # Anonymous unix socket so the root-owned lumi-lelamp service can reach the
+  # uid-1000 PulseAudio daemon (libpulse rejects cookie auth when the socket
+  # owner differs from the connecting uid). Pairs with the PULSE_SERVER env
+  # added to the lumi-lelamp.service unit below.
+  if [ -f "$PULSE_CONF" ] && ! grep -q "pulse-anon-lumi" "$PULSE_CONF"; then
+    echo "[stage] Configuring PulseAudio anonymous socket for root access"
+    cat >> "$PULSE_CONF" <<'PULSE_EOF'
+
+### Anonymous unix socket so root-owned lumi-lelamp can reach this PA daemon
+load-module module-native-protocol-unix auth-anonymous=1 socket=/tmp/pulse-anon-lumi
 PULSE_EOF
   fi
   if ! command -v uv &>/dev/null; then
@@ -395,6 +408,9 @@ Type=simple
 User=root
 WorkingDirectory=$LELAMP_DIR
 Environment="PYTHONPATH=/opt"
+# Anonymous PulseAudio socket — see /etc/pulse/default.pa. Lets root reach the
+# desktop user's PulseAudio so the Bluetooth headset routing works.
+Environment="PULSE_SERVER=unix:/tmp/pulse-anon-lumi"
 ExecStart=$LELAMP_DIR/.venv/bin/uvicorn lelamp.server:app --host 0.0.0.0 --port 5001
 Restart=always
 RestartSec=5

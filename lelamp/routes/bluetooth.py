@@ -6,6 +6,7 @@ through the existing Lumi reverse proxy).
 """
 
 import logging
+import time
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
@@ -133,6 +134,18 @@ def bt_active_set(req: ActiveRequest):
 
     if not mgr.info(target)["connected"] and not mgr.connect(target):
         raise HTTPException(503, f"Could not connect to {target}")
+
+    # Auto-switch to HFP whenever available — single-device mic+speaker is
+    # the whole point of "use headset" mode. Falls back to whatever profile
+    # is active if HFP isn't offered (e.g. BT speakers).
+    card = mgr.pa_card_for_mac(target)
+    if card:
+        profiles = mgr.pa_card_profiles(card)
+        if profiles.get("handsfree_head_unit", False):
+            if mgr.set_pa_card_profile(card, "handsfree_head_unit"):
+                # PulseAudio re-exposes sink/source on the next event loop tick;
+                # give it a beat before we query.
+                time.sleep(1.0)
 
     pa_sink = mgr.pa_sink_for_mac(target)
     if not pa_sink:

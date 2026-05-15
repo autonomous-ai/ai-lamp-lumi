@@ -347,6 +347,61 @@ class BluetoothManager:
             logger.warning("pa_sink_for_mac %s failed: %s", mac, e)
         return None
 
+    def pa_card_for_mac(self, mac: str) -> Optional[str]:
+        """Return the PulseAudio card name (`bluez_card.XX_XX...`) for this MAC."""
+        try:
+            r = _pactl(["list", "short", "cards"], timeout=5)
+            if r.returncode != 0:
+                return None
+            needle = mac.upper().replace(":", "_")
+            for line in r.stdout.splitlines():
+                cols = line.split("\t")
+                if len(cols) < 2:
+                    continue
+                name = cols[1]
+                if name.startswith("bluez_card.") and needle in name.upper():
+                    return name
+        except Exception as e:
+            logger.warning("pa_card_for_mac %s failed: %s", mac, e)
+        return None
+
+    def pa_card_profiles(self, card_name: str) -> dict[str, bool]:
+        """Return {profile_name: available} for the given card. Profiles that
+        BlueZ knows about but can't currently activate (e.g. HFP when the
+        SCO link is broken) are marked unavailable."""
+        out: dict[str, bool] = {}
+        try:
+            r = _pactl(["list", "cards"], timeout=5)
+            if r.returncode != 0:
+                return out
+            in_card = False
+            for line in r.stdout.splitlines():
+                stripped = line.strip()
+                if stripped.startswith("Name:"):
+                    in_card = stripped.split(":", 1)[1].strip() == card_name
+                    continue
+                if not in_card:
+                    continue
+                # Profile lines look like:
+                #   handsfree_head_unit: Handsfree Head Unit (HFP) (sinks: 1, sources: 1, priority: 30, available: yes)
+                m = re.match(r"^([a-zA-Z0-9_+\-]+):\s.*available:\s*(yes|no)\)", stripped)
+                if m:
+                    out[m.group(1)] = m.group(2) == "yes"
+        except Exception as e:
+            logger.warning("pa_card_profiles %s failed: %s", card_name, e)
+        return out
+
+    def set_pa_card_profile(self, card_name: str, profile: str) -> bool:
+        """Switch the bluez card to a different profile (a2dp_sink ↔ HFP).
+        Switching to HFP exposes a real PulseAudio source (the headset mic);
+        A2DP only exposes the sink."""
+        try:
+            r = _pactl(["set-card-profile", card_name, profile], timeout=10)
+            return r.returncode == 0
+        except Exception as e:
+            logger.warning("set-card-profile %s %s failed: %s", card_name, profile, e)
+            return False
+
     def pa_source_for_mac(self, mac: str) -> Optional[str]:
         """Return the PulseAudio source for this BT device (HFP profile only;
         A2DP-only headphones have no real source)."""
