@@ -12,8 +12,8 @@ import numpy.typing as npt
 from typing_extensions import override
 
 from core.enums.pose import GraphEnum
-from core.models.pose import BodyPartScores, ErgoAssessment, RiskLevel, SideAssessment
-from core.perception.pose.graph.h36m import H36MJoint
+from core.models.pose import BodyPartScores, ErgoAssessment, SideAssessment
+from core.perception.pose.graph.h36m import H36MSkeleton
 from core.utils.common import get_or_default
 from core.utils.compute import angle_between_3d, ensure_3d
 
@@ -28,7 +28,9 @@ from .scores import (
     score_trunk,
     score_upper_arm,
 )
-from .utils import JOINT_NAMES, align_to_vertical, signed_flexion_angle
+from .utils import align_to_vertical, joint_name, signed_flexion_angle
+
+_H36M = H36MSkeleton()
 
 
 class RULAAssessor(ErgoAssessor):
@@ -72,29 +74,33 @@ class RULAAssessor(ErgoAssessor):
     ) -> SideAssessment:
         """Assess one side. All keypoints must be 3D and already aligned."""
         if side == "right":
-            shoulder_idx = H36MJoint.R_SHOULDER
-            elbow_idx = H36MJoint.R_ELBOW
-            wrist_idx = H36MJoint.R_WRIST
+            shoulder_idx = _H36M.joint("R_SHOULDER")
+            elbow_idx = _H36M.joint("R_ELBOW")
+            wrist_idx = _H36M.joint("R_WRIST")
         else:
-            shoulder_idx = H36MJoint.L_SHOULDER
-            elbow_idx = H36MJoint.L_ELBOW
-            wrist_idx = H36MJoint.L_WRIST
+            shoulder_idx = _H36M.joint("L_SHOULDER")
+            elbow_idx = _H36M.joint("L_ELBOW")
+            wrist_idx = _H36M.joint("L_WRIST")
 
-        skipped_set: set[str] = set()
+        threshold: float = self._confidence_threshold
+        neck_idx: int = _H36M.joint("NECK")
+        head_idx: int = _H36M.joint("HEAD")
 
-        def _ok(idx: int) -> bool:
-            if confs[idx] < self._confidence_threshold:
-                skipped_set.add(JOINT_NAMES.get(idx, str(idx)))
-                return False
-            return True
+        relevant_joints: list[int] = [shoulder_idx, elbow_idx, wrist_idx, neck_idx, head_idx]
+        skipped_set: set[str] = {
+            joint_name(idx) for idx in relevant_joints if confs[idx] < threshold
+        }
+
+        shoulder_ok: bool = confs[shoulder_idx] >= threshold
+        elbow_ok: bool = confs[elbow_idx] >= threshold
+        wrist_ok: bool = confs[wrist_idx] >= threshold
+        neck_ok: bool = confs[neck_idx] >= threshold
+        head_ok: bool = confs[head_idx] >= threshold
 
         # Trunk direction (spine -> thorax) = up after alignment
-        trunk_up: npt.NDArray[np.float32] = kps[H36MJoint.THORAX] - kps[H36MJoint.SPINE]
-
-        # Mark all low-confidence joints upfront
-        shoulder_ok: bool = _ok(shoulder_idx)
-        elbow_ok: bool = _ok(elbow_idx)
-        wrist_ok: bool = _ok(wrist_idx)
+        trunk_up: npt.NDArray[np.float32] = (
+            kps[_H36M.joint("THORAX")] - kps[_H36M.joint("SPINE")]
+        )
 
         # --- Upper arm angle (3D angle between upper-arm vec and trunk) ---
         if shoulder_ok and elbow_ok:
@@ -120,8 +126,8 @@ class RULAAssessor(ErgoAssessor):
         wrist_twist_score: int = 1
 
         # --- Neck angle (3D angle of head-neck vec relative to trunk) ---
-        if _ok(H36MJoint.NECK) and _ok(H36MJoint.HEAD):
-            neck_vec: npt.NDArray[np.float32] = kps[H36MJoint.HEAD] - kps[H36MJoint.NECK]
+        if neck_ok and head_ok:
+            neck_vec: npt.NDArray[np.float32] = kps[head_idx] - kps[neck_idx]
             neck_angle: float = signed_flexion_angle(neck_vec, trunk_up)
             neck_score: int = score_neck(neck_angle)
         else:
@@ -184,9 +190,12 @@ class RULAAssessor(ErgoAssessor):
             ErgoAssessment with left/right results, or None if spine/thorax
             are not confident enough to define the trunk.
         """
+        spine_idx: int = _H36M.joint("SPINE")
+        thorax_idx: int = _H36M.joint("THORAX")
+
         if (
-            scores[H36MJoint.SPINE] < self._confidence_threshold
-            or scores[H36MJoint.THORAX] < self._confidence_threshold
+            scores[spine_idx] < self._confidence_threshold
+            or scores[thorax_idx] < self._confidence_threshold
         ):
             return None
 
@@ -213,4 +222,18 @@ class RULAAssessor(ErgoAssessor):
         preprocess: bool = True,
     ) -> list[ErgoAssessment | None]:
         """Run RULA assessment on a batch of (keypoints, scores) pairs."""
-        return [self._assess_single(kps, scores) for kps, scores in input]
+        results: list[ErgoAssessment | None] = [
+            self._assess_single(kps, scores) for kps, scores in input
+        ]
+
+        for result in results:
+            if result is not None:
+                self._logger.info(
+                    "RULA score=%d (L=%d, R=%d), risk=%s",
+                    result.score,
+                    result.left.score,
+                    result.right.score,
+                    result.risk_level.name,
+                )
+
+        return results
