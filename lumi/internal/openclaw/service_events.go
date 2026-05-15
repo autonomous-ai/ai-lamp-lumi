@@ -214,7 +214,13 @@ func (s *Service) drainPendingEvents() {
 			// Raw text from the monitor — no enroll nudge, no [sensing:*] prefix.
 			// TTS is suppressed via MarkWebChatRun (already called at queue time).
 			// `[user]` mirrors voice_command — direct human input, top priority.
-			msg = "[user] " + ev.msg
+			// Slash commands (`/status`, `/think`, …) skip the prefix so the
+			// agent's command router still sees the literal leading slash.
+			if strings.HasPrefix(ev.msg, "/") {
+				msg = ev.msg
+			} else {
+				msg = "[user] " + ev.msg
+			}
 		} else {
 			// motion.activity / emotion.detected use domain-specific prefixes
 			// to avoid triggering SOUL.md's "[sensing:*] → load sensing/SKILL.md"
