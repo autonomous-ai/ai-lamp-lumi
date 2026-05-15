@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback, type ReactNode } from "react"
 import {
   Paperclip, X, Copy, Check, RotateCcw, Download, ArrowDown,
   Pin, ChevronRight, Sparkles, Plus, Trash2, History,
+  Wrench, Lightbulb, Cog, Music, Palette, Search, Smile, ChevronDown,
 } from "lucide-react";
 import { API } from "./types";
 import type { DisplayEvent, MonitorEvent } from "./types";
@@ -183,48 +184,128 @@ function stripHWMarkers(text: string): string {
 
 // ─── Tool call parsing ──────────────────────────────────────────────────────
 
+type IconKind = "tool" | "led" | "scene" | "led_off" | "music" | "servo" | "emotion" | "search";
 interface ToolChip {
   id: string;       // dedup key
-  icon: string;
+  iconKind: IconKind;
   label: string;
+  detail?: string;  // formatted arg summary, e.g. for web_search → query
+  args?: Record<string, any>; // raw args for expanded view
+  result?: string;  // result summary (when "result" phase arrives)
 }
 
 const TOOL_EVENT_TYPES = new Set(["tool_call", "hw_emotion", "hw_led", "hw_audio", "hw_servo", "led_set", "led_off"]);
 
-function parseToolChip(ev: { type: string; summary: string; id: string }): ToolChip | null {
+// Tools that route through hw_* events already — skip the generic tool_call
+// chip for them to avoid duplicates.
+const HW_SHADOW_TOOLS = new Set(["set_emotion", "set_led", "play_music", "move_servo"]);
+
+// Map a tool name to which lucide icon best represents it. web_search and
+// similar lookup tools get a search icon, the rest fall back to Wrench.
+function iconForTool(name: string): IconKind {
+  const n = name.toLowerCase();
+  if (n.includes("search") || n.includes("lookup") || n.includes("query")) return "search";
+  return "tool";
+}
+
+// Render a tool chip's icon as a Lucide component at the given size.
+function renderToolIcon(kind: IconKind, size = 12) {
+  switch (kind) {
+    case "led":     return <Lightbulb size={size} />;
+    case "scene":   return <Palette size={size} />;
+    case "led_off": return <Lightbulb size={size} />;
+    case "music":   return <Music size={size} />;
+    case "servo":   return <Cog size={size} />;
+    case "emotion": return <Smile size={size} />;
+    case "search":  return <Search size={size} />;
+    case "tool":
+    default:        return <Wrench size={size} />;
+  }
+}
+
+// Compact one-line preview of args — typically the user-relevant input like
+// the search query. Falls back to a JSON-ish stringification.
+function summarizeArgs(args: Record<string, any> | undefined): string | undefined {
+  if (!args || typeof args !== "object") return undefined;
+  // Common keys we prefer to surface as the "headline" of the chip.
+  for (const key of ["query", "q", "url", "command", "text", "name", "recording"]) {
+    if (typeof args[key] === "string" && args[key]) {
+      const v = args[key];
+      return v.length > 80 ? v.slice(0, 80) + "…" : v;
+    }
+  }
+  try {
+    const j = JSON.stringify(args);
+    return j.length > 80 ? j.slice(0, 80) + "…" : j;
+  } catch {
+    return undefined;
+  }
+}
+
+interface ToolEventInput {
+  type: string;
+  summary: string;
+  id: string;
+  detail?: Record<string, any> | null;
+}
+
+// parseToolChip turns a flow event into a chip. For `tool_call` it also
+// extracts the args from `ev.detail.data.args` so the chip can show what the
+// model actually asked for (e.g. the search query).
+function parseToolChip(ev: ToolEventInput): ToolChip | null {
   const s = ev.summary;
   switch (ev.type) {
     case "hw_emotion": {
       const m = s.match(/"emotion"\s*:\s*"([^"]+)"/);
-      return { id: ev.id, icon: "🎭", label: m ? m[1] : "emotion" };
+      return { id: ev.id, iconKind: "emotion", label: m ? m[1] : "emotion" };
     }
     case "hw_led": {
       if (s.includes("/scene/")) {
         const m = s.match(/\/scene\/(\w+)/);
-        return { id: ev.id, icon: "🎨", label: m ? `scene: ${m[1]}` : "LED scene" };
+        return { id: ev.id, iconKind: "scene", label: m ? `scene: ${m[1]}` : "LED scene" };
       }
-      if (s.includes("/led/off")) return { id: ev.id, icon: "💡", label: "LED off" };
+      if (s.includes("/led/off")) return { id: ev.id, iconKind: "led_off", label: "LED off" };
       const m = s.match(/"hex"\s*:\s*"([^"]+)"/);
-      return { id: ev.id, icon: "💡", label: m ? `LED ${m[1]}` : "LED" };
+      return { id: ev.id, iconKind: "led", label: m ? `LED ${m[1]}` : "LED" };
     }
-    case "led_off": return { id: ev.id, icon: "💡", label: "LED off" };
-    case "led_set": return null; // redundant with hw_led/hw_emotion
-    case "hw_audio": return { id: ev.id, icon: "🎵", label: "music" };
+    case "led_off": return { id: ev.id, iconKind: "led_off", label: "LED off" };
+    case "led_set": return null;
+    case "hw_audio": return { id: ev.id, iconKind: "music", label: "music" };
     case "hw_servo": {
-      if (s.includes("/aim")) return { id: ev.id, icon: "⚙", label: "servo aim" };
+      if (s.includes("/aim")) return { id: ev.id, iconKind: "servo", label: "servo aim" };
       if (s.includes("/play")) {
         const m = s.match(/\/play\/(\w+)/);
-        return { id: ev.id, icon: "⚙", label: m ? `servo: ${m[1]}` : "servo play" };
+        return { id: ev.id, iconKind: "servo", label: m ? `servo: ${m[1]}` : "servo play" };
       }
-      return { id: ev.id, icon: "⚙", label: "servo" };
+      return { id: ev.id, iconKind: "servo", label: "servo" };
     }
     case "tool_call": {
-      // Generic tool_call — extract tool name from summary "toolName(phase)"
-      const m = s.match(/^(\w+)/);
-      const name = m ? m[1] : "tool";
-      // Skip if already covered by hw_* events
-      if (["set_emotion", "set_led", "play_music", "move_servo"].includes(name)) return null;
-      return { id: ev.id, icon: "🔧", label: name };
+      const d = ev.detail as Record<string, any> | undefined;
+      const phase: string = d?.data?.phase ?? d?.phase ?? "";
+      const name: string =
+        d?.data?.name ?? d?.data?.tool ?? d?.name ?? d?.tool
+        ?? (s.match(/^(\w+)/)?.[1] ?? "tool");
+      if (HW_SHADOW_TOOLS.has(name)) return null;
+      let argsObj: Record<string, any> | undefined;
+      const rawArgs = d?.data?.args ?? d?.args;
+      if (rawArgs) {
+        try {
+          argsObj = typeof rawArgs === "string" ? JSON.parse(rawArgs) : rawArgs;
+        } catch { /* keep undefined */ }
+      }
+      // The "result" phase fires after the model gets a tool result back.
+      // We can't reliably capture the raw result from this event stream
+      // (the server doesn't relay tool output bytes), so just mark the chip
+      // as completed and surface the phase.
+      const isResult = phase === "result" || phase === "end";
+      return {
+        id: ev.id,
+        iconKind: iconForTool(name),
+        label: name,
+        detail: summarizeArgs(argsObj),
+        args: argsObj,
+        result: isResult ? "completed" : undefined,
+      };
     }
     default: return null;
   }
@@ -546,15 +627,26 @@ export function ChatSection({ events, isActive }: Props) {
         const evRunId = ev.runId ?? (ev.detail as any)?.run_id ?? (ev.detail as any)?.runId;
         if (!evRunId || evRunId !== pending) return;
 
-        // Tool call chips
+        // Tool call chips. Dedup key on iconKind+label so the start + result
+        // phases of the same tool merge into a single chip — the latest event
+        // wins so `result`'s completion flag overwrites the placeholder.
         if (TOOL_EVENT_TYPES.has(ev.type)) {
-          const chip = parseToolChip({ type: ev.type, summary: ev.summary, id: ev.id });
+          const chip = parseToolChip({ type: ev.type, summary: ev.summary, id: ev.id, detail: ev.detail });
           if (chip) {
-            const key = chip.icon + chip.label;
-            if (!toolChipsRef.current.has(key)) {
-              toolChipsRef.current.set(key, chip);
-              setToolChips(Array.from(toolChipsRef.current.values()));
-            }
+            const key = chip.iconKind + ":" + chip.label;
+            const existing = toolChipsRef.current.get(key);
+            // Preserve args/detail from earlier "start" phase if the later
+            // event (result) doesn't carry them.
+            const merged: ToolChip = existing ? {
+              ...existing,
+              ...chip,
+              args: chip.args ?? existing.args,
+              detail: chip.detail ?? existing.detail,
+              // result-phase event marks completion
+              result: chip.result ?? existing.result,
+            } : chip;
+            toolChipsRef.current.set(key, merged);
+            setToolChips(Array.from(toolChipsRef.current.values()));
           }
         }
 
@@ -1385,23 +1477,15 @@ export function ChatSection({ events, isActive }: Props) {
                 {msg.pending && msg.role === "lumi" && msg.runId === pendingRunIdRef.current && thinkingText && (
                   <ThinkingBlock text={thinkingText} />
                 )}
-                {/* Tool call chips — live during pending, persisted after finalize */}
+                {/* Tool call chips — live during pending, persisted after finalize.
+                    Click a chip to expand its args/result panel. */}
                 {msg.role === "lumi" && (() => {
                   const isActivePending = msg.pending && msg.runId === pendingRunIdRef.current;
                   const chips = isActivePending ? toolChips : msg.tools;
                   if (!chips || chips.length === 0) return null;
                   return (
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 2 }}>
-                      {chips.map((c) => (
-                        <span key={c.id} style={{
-                          display: "inline-flex", alignItems: "center", gap: 3,
-                          padding: "2px 8px", borderRadius: 10, fontSize: 10,
-                          background: "rgba(20,184,166,0.1)", border: "1px solid rgba(20,184,166,0.2)",
-                          color: "rgba(20,184,166,0.85)",
-                        }}>
-                          <span>{c.icon}</span>{c.label}
-                        </span>
-                      ))}
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 4, alignItems: "flex-start" }}>
+                      {chips.map((c) => <ToolChipView key={c.id} chip={c} />)}
                     </div>
                   );
                 })()}
@@ -1652,6 +1736,76 @@ export function ChatSection({ events, isActive }: Props) {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─── Tool Chip ───────────────────────────────────────────────────────────────
+
+// Collapsed: pill with icon, name, and a one-line headline (truncated query).
+// Expanded: also shows the full args block (JSON) plus a completion marker.
+function ToolChipView({ chip }: { chip: ToolChip }) {
+  const [open, setOpen] = useState(false);
+  const hasDetail = chip.args || chip.detail || chip.result;
+  const accent = "var(--lm-teal)";
+  return (
+    <div style={{
+      display: "inline-flex", flexDirection: "column",
+      maxWidth: "100%", minWidth: 0,
+      borderRadius: 10,
+      background: `color-mix(in srgb, ${accent} 10%, transparent)`,
+      border: `1px solid color-mix(in srgb, ${accent} 22%, transparent)`,
+      color: accent,
+    }}>
+      <button
+        onClick={() => hasDetail && setOpen((v) => !v)}
+        style={{
+          display: "inline-flex", alignItems: "center", gap: 6,
+          padding: "3px 9px",
+          background: "transparent", border: "none",
+          color: "inherit",
+          cursor: hasDetail ? "pointer" : "default",
+          fontSize: 10.5,
+          textAlign: "left",
+          minWidth: 0,
+        }}
+        title={hasDetail ? (open ? "Hide details" : "Show details") : undefined}
+      >
+        {renderToolIcon(chip.iconKind, 12)}
+        <strong style={{ fontWeight: 700 }}>{chip.label}</strong>
+        {chip.detail && (
+          <span style={{
+            opacity: 0.85, fontFamily: "monospace", fontSize: 10,
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+            maxWidth: 320,
+          }}>{chip.detail}</span>
+        )}
+        {chip.result && (
+          <span style={{
+            fontSize: 9, padding: "0 5px", borderRadius: 3,
+            background: "color-mix(in srgb, var(--lm-green) 18%, transparent)",
+            color: "var(--lm-green)", fontWeight: 700, letterSpacing: "0.04em",
+          }}>OK</span>
+        )}
+        {hasDetail && (
+          <span style={{ marginLeft: 2, opacity: 0.7, display: "inline-flex" }}>
+            {open ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+          </span>
+        )}
+      </button>
+      {open && chip.args && (
+        <pre style={{
+          margin: 0, padding: "6px 10px 8px",
+          fontSize: 10, lineHeight: 1.45, fontFamily: "monospace",
+          color: "var(--lm-text-dim)",
+          background: "color-mix(in srgb, var(--lm-text) 4%, transparent)",
+          borderTop: `1px solid color-mix(in srgb, ${accent} 18%, transparent)`,
+          whiteSpace: "pre-wrap", overflowWrap: "anywhere",
+          maxWidth: 560, maxHeight: 240, overflowY: "auto",
+        }}>
+          {JSON.stringify(chip.args, null, 2)}
+        </pre>
+      )}
     </div>
   );
 }
