@@ -199,7 +199,9 @@ export function Sparkline({
   const gridLevels = grid ? [0, 0.25, 0.5, 0.75, 1] : [];
 
   const svg = (
-    <svg width="100%" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" style={{ display: "block" }}>
+    // Pin SVG height in pixels — without this, width:100% + viewBox + preserveAspectRatio="none"
+    // lets the SVG grow proportionally to its container's width, blowing past the requested height.
+    <svg width="100%" height={h} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" style={{ display: "block", height: h }}>
       <defs>
         <linearGradient id={`sg-${color.replace(/[^a-z]/gi, "")}`} x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor={color} stopOpacity={0.25} />

@@ -97,7 +97,7 @@ export function SystemSection({
             </span>
           </div>
           <div style={{ display: "flex", justifyContent: "center" }}>
-            <GaugeRing value={sys.diskPercent ?? 0} label="" detail={`${(sys.diskPercent ?? 0).toFixed(0)}%`} color={diskColor} size={60} />
+            <GaugeRing value={sys.diskPercent ?? 0} label="" detail={`${(sys.diskPercent ?? 0).toFixed(0)}%`} color={diskColor} size={110} />
           </div>
         </div>
         <div style={{ ...S.card, padding: 12 }}>
@@ -111,7 +111,7 @@ export function SystemSection({
               label=""
               detail={`${sys.cpuTemp.toFixed(1)}°C`}
               color={tempColor(sys.cpuTemp)}
-              size={60}
+              size={110}
             />
           </div>
         </div>
