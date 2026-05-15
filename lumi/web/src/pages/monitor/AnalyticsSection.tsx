@@ -103,7 +103,7 @@ export function AnalyticsSection() {
 
   // Cap to the 10 most recent versions — old versions clutter the legend and
   // dilute chart colors. "Most recent" = max date each version appears on.
-  const VERSION_LIMIT = 10;
+  const VERSION_LIMIT = 5;
   const versions = useMemo(() => {
     if (allVersions.length <= VERSION_LIMIT) return allVersions;
     const lastSeen: Record<string, string> = {};
