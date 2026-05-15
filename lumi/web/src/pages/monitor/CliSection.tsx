@@ -52,10 +52,10 @@ export function CliSection() {
         display: "flex", alignItems: "center", gap: 4, flexShrink: 0,
         flexWrap: "wrap",
       }}>
-        {sessions.map((s) => (
+        {sessions.map((s, i) => (
           <TabPill
             key={s.id}
-            session={s}
+            name={`shell ${i + 1}`}
             active={s.id === active}
             onSelect={() => setActive(s.id)}
             onClose={() => closeTab(s.id)}
