@@ -205,7 +205,7 @@ TRACKING_GOAL_VELOCITY = 150
 TRACKING_ACCELERATION = 30
 
 # Camera field-of-view in degrees (horizontal). Used to convert px offset → degrees.
-CAMERA_FOV_DEG = 60.0
+CAMERA_FOV_DEG = 90.0
 
 # Gimbal gain: fraction of offset to correct each step (0-1).
 # Lowered 0.9→0.6: less aggressive correction reduces camera shake on large
@@ -230,7 +230,7 @@ DEAD_ZONE_PITCH_PCT = 0.05
 
 # EMA smoothing on pixel offset before servo command (0-1).
 # Lower = smoother (less jitter) but slower response.
-EMA_ALPHA = 0.3
+EMA_ALPHA = 0.5
 
 # Settle delay (seconds) after each servo command.
 # Doubled 0.025→0.05: more settle time = camera stabilises before ViT grabs
