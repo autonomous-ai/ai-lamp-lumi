@@ -94,11 +94,38 @@ func (s *Service) SendChatMessageWithImageAndRun(message string, imageBase64 str
 	return s.sendChat(message, imageBase64, reqID, runID, "user")
 }
 
+// SendSlashCommandWithRun sends a slash-prefixed message (e.g. "/status") with
+// deliver:false so the gateway routes the reply only back to this client and
+// does not broadcast to bound channels (Telegram/Discord). Mirrors gw web's
+// chat.send behavior — OpenClaw's system prompt then dispatches the slash to
+// the appropriate tool (e.g. session_status). Use only when the message text
+// starts with "/" and originates from the web monitor chat.
+func (s *Service) SendSlashCommandWithRun(message string, reqID string, runID string) (string, error) {
+	return s.sendChat(message, "", reqID, runID, "user", withDeliver(false))
+}
+
+// SendSlashCommandWithImageAndRun is SendSlashCommandWithRun with image attachment.
+func (s *Service) SendSlashCommandWithImageAndRun(message string, imageBase64 string, reqID string, runID string) (string, error) {
+	return s.sendChat(message, imageBase64, reqID, runID, "user", withDeliver(false))
+}
+
+// sendChatOpt is a functional option that mutates the chat.send params map
+// before the payload is marshaled. New flags can be added without changing
+// the sendChat signature or any existing call sites.
+type sendChatOpt func(map[string]interface{})
+
+// withDeliver sets the chat.send `deliver` flag. Pass false for slash
+// commands so the gateway routes the reply only back to this caller (and
+// does not broadcast to bound channels).
+func withDeliver(v bool) sendChatOpt {
+	return func(p map[string]interface{}) { p["deliver"] = v }
+}
+
 // sendChat is the internal implementation for sending chat messages, optionally with an image.
 // If fixedReqID and fixedRunID are both non-empty, they are used (caller already incremented reqCounter via NextChatRunID).
 // sourceType labels the flow event ("user" for real user / sensing-driven input, "system" for
 // watcher / wake / compact notifications). Does not affect the WS RPC payload.
-func (s *Service) sendChat(message string, imageBase64 string, fixedReqID string, fixedRunID string, sourceType string) (string, error) {
+func (s *Service) sendChat(message string, imageBase64 string, fixedReqID string, fixedRunID string, sourceType string, opts ...sendChatOpt) (string, error) {
 	s.wsMu.Lock()
 	conn := s.wsConn
 	s.wsMu.Unlock()
@@ -125,6 +152,9 @@ func (s *Service) sendChat(message string, imageBase64 string, fixedReqID string
 	sessionKey := s.GetSessionKey()
 	if sessionKey != "" {
 		params["sessionKey"] = sessionKey
+	}
+	for _, opt := range opts {
+		opt(params)
 	}
 
 	// Strip [snapshot: ...] paths from presence events before sending to agent —

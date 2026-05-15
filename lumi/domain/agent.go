@@ -73,6 +73,15 @@ type AgentGateway interface {
 	// SendChatMessageWithImageAndRun is SendChatMessageWithImage with preallocated ids.
 	SendChatMessageWithImageAndRun(msg string, imageBase64 string, reqID string, runID string) (string, error)
 
+	// SendSlashCommandWithRun sends a slash-prefixed message (e.g. "/status")
+	// with deliver:false so the gateway routes the reply only back to this
+	// chat.send caller (mirrors gw web behavior). Use when the message text
+	// starts with "/" and originates from the web monitor chat.
+	SendSlashCommandWithRun(msg string, reqID string, runID string) (string, error)
+
+	// SendSlashCommandWithImageAndRun is SendSlashCommandWithRun with image attachment.
+	SendSlashCommandWithImageAndRun(msg string, imageBase64 string, reqID string, runID string) (string, error)
+
 	// GetSessionKey returns the current agent session key, or empty string.
 	GetSessionKey() string
 
