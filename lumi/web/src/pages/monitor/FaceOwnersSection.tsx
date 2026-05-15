@@ -489,6 +489,19 @@ export function FaceOwnersSection() {
     fontWeight: 600,
   };
 
+  // Shared "header strip" — tinted background + bottom border, extended to span
+  // the full card width via negative margins (S.card has 16px padding) so the
+  // header visually separates from card body.
+  const cardHeaderStrip: React.CSSProperties = {
+    display: "flex", justifyContent: "space-between", alignItems: "center",
+    margin: "-16px -16px 12px -16px",
+    padding: "10px 14px",
+    background: "color-mix(in srgb, var(--lm-text) 5%, transparent)",
+    borderBottom: "1px solid var(--lm-border)",
+    borderTopLeftRadius: 12,
+    borderTopRightRadius: 12,
+  };
+
   // Square icon button — used for the per-person action row (Edit / Timeline /
   // Delete / Expand) so each is the same compact size regardless of label width.
   const iconBtnStyle: React.CSSProperties = {
@@ -1027,8 +1040,8 @@ export function FaceOwnersSection() {
 
       {/* Unknown Voice Clusters */}
       <div style={S.card}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-          <div style={S.cardLabel}>Unknown Voices</div>
+        <div style={cardHeaderStrip}>
+          <div style={{ ...S.cardLabel, marginBottom: 0 }}>Unknown Voices</div>
           <span style={{ fontSize: 10, color: "var(--lm-text-muted)" }}>
             {strangers ? `${strangers.total} cluster${strangers.total !== 1 ? "s" : ""}` : ""}
           </span>
@@ -1132,8 +1145,8 @@ export function FaceOwnersSection() {
 
       {/* Unknown Faces (visit stats per stranger_id) */}
       <div style={S.card}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-          <div style={S.cardLabel}>Unknown Faces</div>
+        <div style={cardHeaderStrip}>
+          <div style={{ ...S.cardLabel, marginBottom: 0 }}>Unknown Faces</div>
           <span style={{ fontSize: 10, color: "var(--lm-text-muted)" }}>
             {faceStrangers ? `${faceStrangers.length} stranger${faceStrangers.length !== 1 ? "s" : ""}` : ""}
           </span>
@@ -1219,8 +1232,8 @@ export function FaceOwnersSection() {
 
       {/* Face Recognition Cooldowns */}
       <div style={S.card}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-          <div style={S.cardLabel}>Face Recognition</div>
+        <div style={cardHeaderStrip}>
+          <div style={{ ...S.cardLabel, marginBottom: 0 }}>Face Recognition</div>
           <button
             onClick={handleResetCooldowns}
             disabled={resetting || !hasActiveCooldowns}
