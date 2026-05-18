@@ -342,7 +342,8 @@ PULSE_EOF
   # Anonymous unix socket so the root-owned lumi-lelamp service can reach the
   # uid-1000 PulseAudio daemon (libpulse rejects cookie auth when the socket
   # owner differs from the connecting uid). Pairs with the PULSE_SERVER env
-  # added to the lumi-lelamp.service unit below.
+  # added to the lumi-lelamp.service unit below. Required for Bluetooth
+  # headset routing (pactl set-default-sink to a bluez sink).
   if [ -f "$PULSE_CONF" ] && ! grep -q "pulse-anon-lumi" "$PULSE_CONF"; then
     echo "[stage] Configuring PulseAudio anonymous socket for root access"
     cat >> "$PULSE_CONF" <<'PULSE_EOF'
@@ -352,10 +353,14 @@ load-module module-native-protocol-unix auth-anonymous=1 socket=/tmp/pulse-anon-
 PULSE_EOF
   fi
 
-  # Tell PulseAudio to ignore the lamp speaker sound card (sndi2s4 on
-  # OrangePi, wm8960soundcard on Pi). lelamp's TTS opens the device directly
-  # via ALSA hw for low-latency persistent playback; if PA also grabs it, the
-  # next TTS OutputStream open fails with PaErrorCode -9985 (EBUSY).
+  # Keep PulseAudio off the lamp speaker codec. lelamp's TTS opens this card
+  # directly via ALSA hw for a persistent low-latency OutputStream, and `aplay`
+  # in the music pipeline also writes to it via plug:lamp_speaker. If PA
+  # auto-loads module-alsa-card for the same card (which it does once udev
+  # finishes settling), the device becomes exclusively held and every other
+  # consumer fails open with EBUSY / PaErrorCode -9985.
+  # ATTR{id} values: sndi2s4 = OrangePi onboard ES8389 codec; wm8960soundcard
+  # = Raspberry Pi (Seeed wm8960 hat).
   PA_IGNORE_RULE="/etc/udev/rules.d/91-pulseaudio-lelamp-ignore.rules"
   if [ ! -f "$PA_IGNORE_RULE" ]; then
     echo "[stage] Adding udev rule so PulseAudio ignores the lamp speaker card"
