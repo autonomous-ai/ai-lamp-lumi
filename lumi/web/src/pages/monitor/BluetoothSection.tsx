@@ -233,7 +233,9 @@ export function BluetoothSection() {
                     {deviceLabel(d)}
                   </div>
                   <div style={{ fontSize: 11, color: "var(--lm-text-muted)", marginTop: 2 }}>
-                    {d.mac} · {d.connected ? "Connected" : "Disconnected"}
+                    {d.mac} · {rowBusy
+                      ? (isActive ? "Switching back to lamp..." : "Routing audio...")
+                      : (isActive ? "Active" : d.connected ? "Ready" : "Offline")}
                   </div>
                 </div>
                 <button
