@@ -242,7 +242,9 @@ export function BluetoothSection() {
                   style={isActive ? toggleBtnOn : toggleBtnOff}
                   title={isActive ? "Turn off private mode" : "Turn on private mode"}
                 >
-                  {rowBusy ? "..." : (isActive ? "In use" : "Use headset")}
+                  {rowBusy
+                    ? (isActive ? "Disconnecting..." : "Connecting...")
+                    : (isActive ? "In use" : "Use headset")}
                 </button>
                 <button
                   onClick={() => setForgetConfirm(d.mac)}
